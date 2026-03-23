@@ -32,7 +32,7 @@ class DocBaseClient:
             name
             for name, value in (
                 ("DOCBASE_DOMAIN", domain),
-                ("DOCBASE_ACCESS_TOKEN", token),
+                ("DOCBASE_TOKEN", token),
             )
             if not value
         ]
@@ -49,11 +49,14 @@ class DocBaseClient:
     def create_post(self, payload: dict[str, Any]) -> dict[str, Any]:
         return self._request("POST", f"/teams/{self.domain}/posts", payload)
 
+    def get_post(self, post_id: int) -> dict[str, Any]:
+        return self._request("GET", f"/teams/{self.domain}/posts/{post_id}")
+
     def update_post(self, post_id: int, payload: dict[str, Any]) -> dict[str, Any]:
         return self._request("PATCH", f"/teams/{self.domain}/posts/{post_id}", payload)
 
     def _request(
-        self, method: str, path: str, payload: dict[str, Any]
+        self, method: str, path: str, payload: dict[str, Any] | None = None
     ) -> dict[str, Any]:
         headers = {
             "X-DocBaseToken": self.token,
