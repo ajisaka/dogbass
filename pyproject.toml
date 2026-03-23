@@ -12,6 +12,13 @@ dependencies = [
 [project.scripts]
 dogbass = "dogbass.cli:main"
 
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+include = ["dogbass*"]
+
 [dependency-groups]
 dev = [
     "cfn-lint>=1.47.0",
