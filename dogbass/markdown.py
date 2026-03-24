@@ -16,9 +16,11 @@ class MarkdownDocument:
     body: str
     tags: list[str]
     draft: bool
+    scope: str | None
+    groups: list[int]
     document_id: int | None
 
-    def to_docbase_payload(self) -> dict[str, Any]:
+    def to_docbase_payload(self, *, default_scope: str | None = None) -> dict[str, Any]:
         payload: dict[str, Any] = {
             "title": self.title,
             "body": self.body,
@@ -26,6 +28,11 @@ class MarkdownDocument:
         }
         if self.tags:
             payload["tags"] = self.tags
+        scope = self.scope if self.scope is not None else default_scope
+        if scope is not None:
+            payload["scope"] = scope
+            if scope == "group":
+                payload["groups"] = self.groups
         return payload
 
 
@@ -41,6 +48,8 @@ def create_markdown_document(path: Path, title: str) -> None:
         body="",
         tags=[],
         draft=True,
+        scope="private",
+        groups=[],
         document_id=None,
     )
     write_markdown_document(document)
@@ -72,7 +81,10 @@ def load_markdown_document(path: Path) -> MarkdownDocument:
 
     tags = _normalize_tags(post.metadata.get("tags"))
     draft = _normalize_draft(post.metadata.get("draft"))
+    scope = _normalize_scope(post.metadata.get("scope"))
+    groups = _normalize_groups(post.metadata.get("groups"))
     document_id = _normalize_document_id(post.metadata.get("id"))
+    _validate_scope_groups(scope, groups)
 
     return MarkdownDocument(
         path=path,
@@ -80,6 +92,8 @@ def load_markdown_document(path: Path) -> MarkdownDocument:
         body=post.content,
         tags=tags,
         draft=draft,
+        scope=scope,
+        groups=groups,
         document_id=document_id,
     )
 
@@ -96,6 +110,10 @@ def write_markdown_document(document: MarkdownDocument) -> None:
         "tags": document.tags,
         "draft": document.draft,
     }
+    if document.scope is not None:
+        metadata["scope"] = document.scope
+    if document.scope == "group":
+        metadata["groups"] = document.groups
     if document.document_id is not None:
         metadata["id"] = document.document_id
 
@@ -104,6 +122,8 @@ def write_markdown_document(document: MarkdownDocument) -> None:
         rendered = _render_post(document.path, post)
     else:
         rendered = _normalize_newlines(frontmatter.dumps(post))
+        if document.scope is not None:
+            rendered = _insert_scope_comments(rendered)
         if not rendered.endswith("\n"):
             rendered = f"{rendered}\n"
     document.path.write_text(rendered, encoding="utf-8", newline="")
@@ -116,6 +136,8 @@ def markdown_document_from_docbase(
     body = payload.get("body")
     draft = payload.get("draft")
     tags_payload = payload.get("tags")
+    scope = _normalize_scope(payload.get("scope"))
+    groups = _normalize_docbase_groups(payload.get("groups"))
 
     if not isinstance(title, str) or not title.strip():
         raise DocBaseResponseError("DocBase response is missing title")
@@ -125,6 +147,7 @@ def markdown_document_from_docbase(
         raise DocBaseResponseError("DocBase response is missing draft")
     if not isinstance(tags_payload, list):
         raise DocBaseResponseError("DocBase response is missing tags")
+    _validate_scope_groups(scope, groups)
 
     tags: list[str] = []
     for tag in tags_payload:
@@ -141,6 +164,8 @@ def markdown_document_from_docbase(
         body=body,
         tags=tags,
         draft=draft,
+        scope=scope,
+        groups=groups,
         document_id=document_id,
     )
 
@@ -175,6 +200,75 @@ def _normalize_document_id(raw_document_id: Any) -> int | None:
     if isinstance(raw_document_id, str) and raw_document_id.isdigit():
         return int(raw_document_id)
     raise ValidationError("front matter 'id' must be an integer")
+
+
+def _normalize_scope(raw_scope: Any) -> str | None:
+    if raw_scope is None:
+        return None
+    if not isinstance(raw_scope, str):
+        raise ValidationError("front matter 'scope' must be a string")
+
+    normalized_scope = raw_scope.strip()
+    if normalized_scope not in {"private", "everyone", "group"}:
+        raise ValidationError(
+            "front matter 'scope' must be private, everyone, or group"
+        )
+    return normalized_scope
+
+
+def _normalize_groups(raw_groups: Any) -> list[int]:
+    if raw_groups is None:
+        return []
+    if not isinstance(raw_groups, list):
+        raise ValidationError("front matter 'groups' must be a list")
+
+    groups: list[int] = []
+    for group in raw_groups:
+        if isinstance(group, int):
+            groups.append(group)
+            continue
+        if isinstance(group, str) and group.isdigit():
+            groups.append(int(group))
+            continue
+        raise ValidationError("front matter 'groups' must contain integers")
+    return groups
+
+
+def _normalize_docbase_groups(raw_groups: Any) -> list[int]:
+    if raw_groups is None:
+        return []
+    if not isinstance(raw_groups, list):
+        raise DocBaseResponseError("DocBase response is missing groups")
+
+    groups: list[int] = []
+    for group in raw_groups:
+        if not isinstance(group, dict):
+            raise DocBaseResponseError("DocBase response includes an invalid group")
+        group_id = group.get("id")
+        if not isinstance(group_id, int):
+            raise DocBaseResponseError("DocBase response includes an invalid group")
+        groups.append(group_id)
+    return groups
+
+
+def _validate_scope_groups(scope: str | None, groups: list[int]) -> None:
+    if scope == "group" and not groups:
+        raise ValidationError("front matter 'groups' is required when scope is group")
+    if scope != "group" and groups:
+        raise ValidationError(
+            "front matter 'groups' can only be used when scope is group"
+        )
+
+
+def _insert_scope_comments(rendered: str) -> str:
+    scope_line = "scope: private\n"
+    commented_scope = (
+        "scope: private\n"
+        "# scope: everyone\n"
+        "# scope: group\n"
+        "# groups: [123]  # required when scope is group\n"
+    )
+    return rendered.replace(scope_line, commented_scope, 1)
 
 
 def _render_post(path: Path, post: frontmatter.Post) -> str:

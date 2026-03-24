@@ -52,9 +52,9 @@ def new_markdown_file(markdown_path: Path) -> int:
 
 def push_markdown_file(markdown_path: Path, client: DocBaseClient) -> int:
     document = load_markdown_document(markdown_path)
-    payload = document.to_docbase_payload()
 
     if document.document_id is None:
+        payload = document.to_docbase_payload(default_scope="private")
         response = client.create_post(payload)
         created_id = response.get("id")
         if not isinstance(created_id, int):
@@ -63,6 +63,7 @@ def push_markdown_file(markdown_path: Path, client: DocBaseClient) -> int:
         click.echo(f"Created DocBase post {created_id} from {markdown_path}")
         return 0
 
+    payload = document.to_docbase_payload()
     client.update_post(document.document_id, payload)
     click.echo(f"Updated DocBase post {document.document_id} from {markdown_path}")
     return 0

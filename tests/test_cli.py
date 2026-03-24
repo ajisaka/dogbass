@@ -38,7 +38,9 @@ class FakeDocBaseClient(DocBaseClient):
             "title": "Pulled Post",
             "body": "Pulled body",
             "draft": True,
+            "scope": "private",
             "tags": [{"name": "remote"}, {"name": "docbase"}],
+            "groups": [],
         }
 
 
@@ -56,8 +58,14 @@ class DogbassTests(unittest.TestCase):
             self.assertEqual(document.title, "Fresh Document")
             self.assertTrue(document.draft)
             self.assertEqual(document.tags, [])
+            self.assertEqual(document.scope, "private")
+            self.assertEqual(document.groups, [])
             self.assertIsNone(document.document_id)
             self.assertEqual(document.body, "")
+            content = path.read_text(encoding="utf-8")
+            self.assertIn("# scope: everyone", content)
+            self.assertIn("# scope: group", content)
+            self.assertIn("# groups: [123]  # required when scope is group", content)
 
     def test_new_markdown_file_prompts_until_non_empty_title(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -75,6 +83,7 @@ class DogbassTests(unittest.TestCase):
             document = load_markdown_document(path)
             self.assertEqual(document.title, "Prompted Title")
             self.assertTrue(document.draft)
+            self.assertEqual(document.scope, "private")
 
     def test_main_supports_new_command_without_docbase_env(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -102,6 +111,7 @@ class DogbassTests(unittest.TestCase):
                 "title: Test Title\n"
                 "tags: [alpha, beta]\n"
                 "draft: true\n"
+                "scope: everyone\n"
                 "id: 123\n"
                 "---\n"
                 "\n"
@@ -114,6 +124,8 @@ class DogbassTests(unittest.TestCase):
             self.assertEqual(document.title, "Test Title")
             self.assertEqual(document.tags, ["alpha", "beta"])
             self.assertTrue(document.draft)
+            self.assertEqual(document.scope, "everyone")
+            self.assertEqual(document.groups, [])
             self.assertEqual(document.document_id, 123)
             self.assertIn("Hello DocBase!", document.body)
 
@@ -136,6 +148,7 @@ class DogbassTests(unittest.TestCase):
                         "title": "New Post",
                         "body": "Post body",
                         "draft": False,
+                        "scope": "private",
                         "tags": ["docs"],
                     }
                 ],
@@ -240,6 +253,8 @@ class DogbassTests(unittest.TestCase):
             self.assertEqual(document.body, "Pulled body")
             self.assertEqual(document.tags, ["remote", "docbase"])
             self.assertTrue(document.draft)
+            self.assertEqual(document.scope, "private")
+            self.assertEqual(document.groups, [])
 
     def test_pull_markdown_file_creates_new_file_when_id_is_given(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -255,6 +270,8 @@ class DogbassTests(unittest.TestCase):
             self.assertEqual(document.body, "Pulled body")
             self.assertEqual(document.tags, ["remote", "docbase"])
             self.assertTrue(document.draft)
+            self.assertEqual(document.scope, "private")
+            self.assertEqual(document.groups, [])
 
     def test_pull_markdown_file_preserves_crlf_newlines(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -286,7 +303,9 @@ class DogbassTests(unittest.TestCase):
                     "title": "Pulled Post",
                     "body": "Line 1\r\nLine 2\r\n",
                     "draft": True,
+                    "scope": "private",
                     "tags": [{"name": "remote"}],
+                    "groups": [],
                 }
 
             client.get_post = get_post_with_crlf  # type: ignore[method-assign]
@@ -317,6 +336,7 @@ class DogbassTests(unittest.TestCase):
             self.assertIn("Pulled DocBase post 7", result.output)
             document = load_markdown_document(path)
             self.assertEqual(document.document_id, 7)
+            self.assertEqual(document.scope, "private")
 
     def test_main_rejects_pull_id_when_target_file_exists(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
