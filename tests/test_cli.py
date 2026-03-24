@@ -64,11 +64,13 @@ class DogbassTests(unittest.TestCase):
             self.assertEqual(document.title, "Fresh Document")
             self.assertTrue(document.draft)
             self.assertEqual(document.tags, [])
+            self.assertTrue(document.notice)
             self.assertEqual(document.scope, "private")
             self.assertEqual(document.groups, [])
             self.assertIsNone(document.document_id)
             self.assertEqual(document.body, "")
             content = path.read_text(encoding="utf-8")
+            self.assertIn("# notice: false", content)
             self.assertIn("# scope: everyone", content)
             self.assertIn("# scope: group", content)
             self.assertIn("# groups: [123]  # required when scope is group", content)
@@ -89,6 +91,7 @@ class DogbassTests(unittest.TestCase):
             document = load_markdown_document(path)
             self.assertEqual(document.title, "Prompted Title")
             self.assertTrue(document.draft)
+            self.assertTrue(document.notice)
             self.assertEqual(document.scope, "private")
 
     def test_main_supports_new_command_without_docbase_env(self) -> None:
@@ -117,6 +120,7 @@ class DogbassTests(unittest.TestCase):
                 "title: Test Title\n"
                 "tags: [alpha, beta]\n"
                 "draft: true\n"
+                "notice: false\n"
                 "scope: everyone\n"
                 "id: 123\n"
                 "---\n"
@@ -130,6 +134,7 @@ class DogbassTests(unittest.TestCase):
             self.assertEqual(document.title, "Test Title")
             self.assertEqual(document.tags, ["alpha", "beta"])
             self.assertTrue(document.draft)
+            self.assertFalse(document.notice)
             self.assertEqual(document.scope, "everyone")
             self.assertEqual(document.groups, [])
             self.assertEqual(document.document_id, 123)
@@ -139,7 +144,14 @@ class DogbassTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmpdir:
             path = Path(tmpdir) / "new-post.md"
             path.write_text(
-                "---\ntitle: New Post\ntags: [docs]\ndraft: false\n---\n\nPost body\n",
+                "---\n"
+                "title: New Post\n"
+                "tags: [docs]\n"
+                "draft: false\n"
+                "notice: true\n"
+                "---\n"
+                "\n"
+                "Post body\n",
                 encoding="utf-8",
             )
             client = FakeDocBaseClient()
@@ -154,6 +166,7 @@ class DogbassTests(unittest.TestCase):
                         "title": "New Post",
                         "body": "Post body",
                         "draft": False,
+                        "notice": True,
                         "scope": "private",
                         "tags": ["docs"],
                     }
@@ -171,6 +184,7 @@ class DogbassTests(unittest.TestCase):
                 "title: Existing Post\n"
                 "tags: [docs]\n"
                 "draft: false\n"
+                "notice: false\n"
                 "id: 7\n"
                 "---\n"
                 "\n"
@@ -192,6 +206,7 @@ class DogbassTests(unittest.TestCase):
                             "title": "Existing Post",
                             "body": "Existing body",
                             "draft": False,
+                            "notice": False,
                             "tags": ["docs"],
                         },
                     )
@@ -241,6 +256,58 @@ class DogbassTests(unittest.TestCase):
             self.assertEqual(result.exit_code, 0)
             self.assertIn("Created DocBase post 42", result.output)
 
+    def test_push_markdown_file_prefers_notify_override(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = Path(tmpdir) / "override-post.md"
+            path.write_text(
+                "---\n"
+                "title: Override Post\n"
+                "draft: false\n"
+                "notice: true\n"
+                "---\n"
+                "\n"
+                "CLI body\n",
+                encoding="utf-8",
+            )
+            client = FakeDocBaseClient()
+
+            exit_code = push_markdown_file(path, client, notify_override=False)
+
+            self.assertEqual(exit_code, 0)
+            self.assertEqual(
+                client.created_payloads[0]["notice"],
+                False,
+            )
+
+    def test_main_supports_push_no_notify_option(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = Path(tmpdir) / "command-post.md"
+            path.write_text(
+                "---\n"
+                "title: Command Post\n"
+                "draft: false\n"
+                "notice: true\n"
+                "---\n"
+                "\n"
+                "CLI body\n",
+                encoding="utf-8",
+            )
+
+            previous_domain = os.environ.get("DOCBASE_DOMAIN")
+            previous_token = os.environ.get("DOCBASE_TOKEN")
+            self.addCleanup(_restore_env_var, "DOCBASE_DOMAIN", previous_domain)
+            self.addCleanup(_restore_env_var, "DOCBASE_TOKEN", previous_token)
+            os.environ["DOCBASE_DOMAIN"] = "example"
+            os.environ["DOCBASE_TOKEN"] = "secret"
+
+            fake_client = FakeDocBaseClient()
+
+            with patch.object(DocBaseClient, "from_env", return_value=fake_client):
+                result = self.runner.invoke(main, ["push", "--no-notify", str(path)])
+
+            self.assertEqual(result.exit_code, 0)
+            self.assertEqual(fake_client.created_payloads[0]["notice"], False)
+
     def test_main_supports_groups_command(self) -> None:
         previous_domain = os.environ.get("DOCBASE_DOMAIN")
         previous_token = os.environ.get("DOCBASE_TOKEN")
@@ -276,6 +343,7 @@ class DogbassTests(unittest.TestCase):
             self.assertEqual(document.body, "Pulled body")
             self.assertEqual(document.tags, ["remote", "docbase"])
             self.assertTrue(document.draft)
+            self.assertIsNone(document.notice)
             self.assertEqual(document.scope, "private")
             self.assertEqual(document.groups, [])
 
@@ -293,6 +361,7 @@ class DogbassTests(unittest.TestCase):
             self.assertEqual(document.body, "Pulled body")
             self.assertEqual(document.tags, ["remote", "docbase"])
             self.assertTrue(document.draft)
+            self.assertIsNone(document.notice)
             self.assertEqual(document.scope, "private")
             self.assertEqual(document.groups, [])
 
@@ -359,7 +428,30 @@ class DogbassTests(unittest.TestCase):
             self.assertIn("Pulled DocBase post 7", result.output)
             document = load_markdown_document(path)
             self.assertEqual(document.document_id, 7)
+            self.assertIsNone(document.notice)
             self.assertEqual(document.scope, "private")
+
+    def test_pull_markdown_file_preserves_existing_notice(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = Path(tmpdir) / "pulled-post.md"
+            path.write_text(
+                "---\n"
+                "title: Old Title\n"
+                "draft: false\n"
+                "notice: false\n"
+                "id: 7\n"
+                "---\n"
+                "\n"
+                "Old body\n",
+                encoding="utf-8",
+            )
+            client = FakeDocBaseClient()
+
+            exit_code = pull_markdown_file(path, client)
+
+            self.assertEqual(exit_code, 0)
+            document = load_markdown_document(path)
+            self.assertFalse(document.notice)
 
     def test_main_rejects_pull_id_when_target_file_exists(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:

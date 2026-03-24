@@ -50,11 +50,17 @@ def new_markdown_file(markdown_path: Path) -> int:
     return 0
 
 
-def push_markdown_file(markdown_path: Path, client: DocBaseClient) -> int:
+def push_markdown_file(
+    markdown_path: Path,
+    client: DocBaseClient,
+    notify_override: bool | None = None,
+) -> int:
     document = load_markdown_document(markdown_path)
 
     if document.document_id is None:
-        payload = document.to_docbase_payload(default_scope="private")
+        payload = document.to_docbase_payload(
+            default_scope="private", notice_override=notify_override
+        )
         response = client.create_post(payload)
         created_id = response.get("id")
         if not isinstance(created_id, int):
@@ -63,7 +69,7 @@ def push_markdown_file(markdown_path: Path, client: DocBaseClient) -> int:
         click.echo(f"Created DocBase post {created_id} from {markdown_path}")
         return 0
 
-    payload = document.to_docbase_payload()
+    payload = document.to_docbase_payload(notice_override=notify_override)
     client.update_post(document.document_id, payload)
     click.echo(f"Updated DocBase post {document.document_id} from {markdown_path}")
     return 0
@@ -72,10 +78,18 @@ def push_markdown_file(markdown_path: Path, client: DocBaseClient) -> int:
 def pull_markdown_file(
     markdown_path: Path, client: DocBaseClient, document_id: int | None = None
 ) -> int:
+    notice: bool | None = None
+    if markdown_path.exists():
+        try:
+            notice = load_markdown_document(markdown_path).notice
+        except AppError:
+            notice = None
     if document_id is None:
         document_id = load_document_id(markdown_path)
     payload = client.get_post(document_id)
-    document = markdown_document_from_docbase(markdown_path, payload, document_id)
+    document = markdown_document_from_docbase(
+        markdown_path, payload, document_id, notice=notice
+    )
     write_markdown_document(document)
     click.echo(f"Pulled DocBase post {document_id} into {markdown_path}")
     return 0
@@ -106,12 +120,13 @@ def new_command(markdown_file: Path) -> None:
 
 
 @main.command("push")
+@click.option("--notify/--no-notify", "notify_override", default=None)
 @click.argument("markdown_file", type=click.Path(exists=True, path_type=Path))
 @app_error_handler
-def push_command(markdown_file: Path) -> None:
+def push_command(markdown_file: Path, notify_override: bool | None) -> None:
     """Create or update a DocBase document from a Markdown file."""
     client = DocBaseClient.from_env()
-    push_markdown_file(markdown_file, client)
+    push_markdown_file(markdown_file, client, notify_override=notify_override)
 
 
 @main.command("pull")

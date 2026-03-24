@@ -16,16 +16,25 @@ class MarkdownDocument:
     body: str
     tags: list[str]
     draft: bool
+    notice: bool | None
     scope: str | None
     groups: list[int]
     document_id: int | None
 
-    def to_docbase_payload(self, *, default_scope: str | None = None) -> dict[str, Any]:
+    def to_docbase_payload(
+        self,
+        *,
+        default_scope: str | None = None,
+        notice_override: bool | None = None,
+    ) -> dict[str, Any]:
         payload: dict[str, Any] = {
             "title": self.title,
             "body": self.body,
             "draft": self.draft,
         }
+        notice = self.notice if notice_override is None else notice_override
+        if notice is not None:
+            payload["notice"] = notice
         if self.tags:
             payload["tags"] = self.tags
         scope = self.scope if self.scope is not None else default_scope
@@ -48,6 +57,7 @@ def create_markdown_document(path: Path, title: str) -> None:
         body="",
         tags=[],
         draft=True,
+        notice=True,
         scope="private",
         groups=[],
         document_id=None,
@@ -81,6 +91,7 @@ def load_markdown_document(path: Path) -> MarkdownDocument:
 
     tags = _normalize_tags(post.metadata.get("tags"))
     draft = _normalize_draft(post.metadata.get("draft"))
+    notice = _normalize_notice(post.metadata.get("notice"))
     scope = _normalize_scope(post.metadata.get("scope"))
     groups = _normalize_groups(post.metadata.get("groups"))
     document_id = _normalize_document_id(post.metadata.get("id"))
@@ -92,6 +103,7 @@ def load_markdown_document(path: Path) -> MarkdownDocument:
         body=post.content,
         tags=tags,
         draft=draft,
+        notice=notice,
         scope=scope,
         groups=groups,
         document_id=document_id,
@@ -110,6 +122,8 @@ def write_markdown_document(document: MarkdownDocument) -> None:
         "tags": document.tags,
         "draft": document.draft,
     }
+    if document.notice is not None:
+        metadata["notice"] = document.notice
     if document.scope is not None:
         metadata["scope"] = document.scope
     if document.scope == "group":
@@ -122,15 +136,17 @@ def write_markdown_document(document: MarkdownDocument) -> None:
         rendered = _render_post(document.path, post)
     else:
         rendered = _normalize_newlines(frontmatter.dumps(post))
-        if document.scope is not None:
-            rendered = _insert_scope_comments(rendered)
+        rendered = _insert_template_comments(rendered, document)
         if not rendered.endswith("\n"):
             rendered = f"{rendered}\n"
     document.path.write_text(rendered, encoding="utf-8", newline="")
 
 
 def markdown_document_from_docbase(
-    path: Path, payload: dict[str, Any], document_id: int
+    path: Path,
+    payload: dict[str, Any],
+    document_id: int,
+    notice: bool | None = None,
 ) -> MarkdownDocument:
     title = payload.get("title")
     body = payload.get("body")
@@ -164,6 +180,7 @@ def markdown_document_from_docbase(
         body=body,
         tags=tags,
         draft=draft,
+        notice=notice,
         scope=scope,
         groups=groups,
         document_id=document_id,
@@ -190,6 +207,14 @@ def _normalize_draft(raw_draft: Any) -> bool:
     if not isinstance(raw_draft, bool):
         raise ValidationError("front matter 'draft' must be true or false")
     return raw_draft
+
+
+def _normalize_notice(raw_notice: Any) -> bool | None:
+    if raw_notice is None:
+        return None
+    if not isinstance(raw_notice, bool):
+        raise ValidationError("front matter 'notice' must be true or false")
+    return raw_notice
 
 
 def _normalize_document_id(raw_document_id: Any) -> int | None:
@@ -260,15 +285,26 @@ def _validate_scope_groups(scope: str | None, groups: list[int]) -> None:
         )
 
 
-def _insert_scope_comments(rendered: str) -> str:
-    scope_line = "scope: private\n"
-    commented_scope = (
-        "scope: private\n"
-        "# scope: everyone\n"
-        "# scope: group\n"
-        "# groups: [123]  # required when scope is group\n"
-    )
-    return rendered.replace(scope_line, commented_scope, 1)
+def _insert_template_comments(rendered: str, document: MarkdownDocument) -> str:
+    if document.notice is not None:
+        notice_line = f"notice: {'true' if document.notice else 'false'}\n"
+        commented_notice = (
+            f"notice: {'true' if document.notice else 'false'}\n"
+            f"# notice: {'false' if document.notice else 'true'}\n"
+        )
+        rendered = rendered.replace(notice_line, commented_notice, 1)
+
+    if document.scope is not None:
+        scope_line = f"scope: {document.scope}\n"
+        commented_scope = (
+            f"scope: {document.scope}\n"
+            "# scope: everyone\n"
+            "# scope: group\n"
+            "# groups: [123]  # required when scope is group\n"
+        )
+        rendered = rendered.replace(scope_line, commented_scope, 1)
+
+    return rendered
 
 
 def _render_post(path: Path, post: frontmatter.Post) -> str:
