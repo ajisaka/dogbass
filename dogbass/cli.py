@@ -5,6 +5,7 @@ from pathlib import Path
 
 from dogbass.docbase import DocBaseClient
 from dogbass.markdown import (
+    create_markdown_document,
     load_document_id,
     load_markdown_document,
     markdown_document_from_docbase,
@@ -16,6 +17,13 @@ from dogbass.markdown import (
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="dogbass")
     subparsers = parser.add_subparsers(dest="command", required=True)
+
+    new_parser = subparsers.add_parser(
+        "new", help="Create a new Markdown file for DocBase."
+    )
+    new_parser.add_argument(
+        "markdown_file", help="Path to the Markdown file to create."
+    )
 
     push_parser = subparsers.add_parser(
         "push", help="Create or update a DocBase document from a Markdown file."
@@ -30,6 +38,21 @@ def build_parser() -> argparse.ArgumentParser:
     )
 
     return parser
+
+
+def prompt_title() -> str:
+    while True:
+        title = input("Title: ").strip()
+        if title:
+            return title
+        print("Title must not be empty.")
+
+
+def new_markdown_file(markdown_path: Path) -> int:
+    title = prompt_title()
+    create_markdown_document(markdown_path, title)
+    print(f"Created Markdown file at {markdown_path}")
+    return 0
 
 
 def push_markdown_file(markdown_path: Path, client: DocBaseClient) -> int:
@@ -64,8 +87,11 @@ def pull_markdown_file(markdown_path: Path, client: DocBaseClient) -> int:
 def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
-    client = DocBaseClient.from_env()
 
+    if args.command == "new":
+        return new_markdown_file(Path(args.markdown_file))
+
+    client = DocBaseClient.from_env()
     if args.command == "push":
         return push_markdown_file(Path(args.markdown_file), client)
     if args.command == "pull":

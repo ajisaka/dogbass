@@ -27,6 +27,23 @@ class MarkdownDocument:
         return payload
 
 
+def create_markdown_document(path: Path, title: str) -> None:
+    if path.exists():
+        raise FileExistsError(path)
+    if not title.strip():
+        raise ValueError("Title must not be empty")
+
+    document = MarkdownDocument(
+        path=path,
+        title=title.strip(),
+        body="",
+        tags=[],
+        draft=True,
+        document_id=None,
+    )
+    write_markdown_document(document)
+
+
 def load_document_id(path: Path) -> int:
     if path.suffix != ".md":
         raise ValueError(f"Expected a Markdown file (*.md): {path}")
@@ -81,9 +98,13 @@ def write_markdown_document(document: MarkdownDocument) -> None:
         metadata["id"] = document.document_id
 
     post = frontmatter.Post(document.body, **metadata)
-    document.path.write_text(
-        _render_post(document.path, post), encoding="utf-8", newline=""
-    )
+    if document.path.exists():
+        rendered = _render_post(document.path, post)
+    else:
+        rendered = _normalize_newlines(frontmatter.dumps(post))
+        if not rendered.endswith("\n"):
+            rendered = f"{rendered}\n"
+    document.path.write_text(rendered, encoding="utf-8", newline="")
 
 
 def markdown_document_from_docbase(

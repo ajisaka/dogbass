@@ -8,9 +8,9 @@ from contextlib import redirect_stdout
 from pathlib import Path
 from unittest.mock import patch
 
-from dogbass.cli import main, pull_markdown_file, push_markdown_file
+from dogbass.cli import main, new_markdown_file, pull_markdown_file, push_markdown_file
 from dogbass.docbase import DocBaseClient, DocBaseConfigurationError
-from dogbass.markdown import load_markdown_document
+from dogbass.markdown import create_markdown_document, load_markdown_document
 
 
 class FakeDocBaseClient(DocBaseClient):
@@ -40,6 +40,57 @@ class FakeDocBaseClient(DocBaseClient):
 
 
 class DogbassTests(unittest.TestCase):
+    def test_create_markdown_document_uses_draft_true_by_default(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = Path(tmpdir) / "new.md"
+
+            create_markdown_document(path, "Fresh Document")
+
+            document = load_markdown_document(path)
+            self.assertEqual(document.title, "Fresh Document")
+            self.assertTrue(document.draft)
+            self.assertEqual(document.tags, [])
+            self.assertIsNone(document.document_id)
+            self.assertEqual(document.body, "")
+
+    def test_new_markdown_file_prompts_until_non_empty_title(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = Path(tmpdir) / "prompted.md"
+            output = io.StringIO()
+
+            with (
+                patch("builtins.input", side_effect=["", "Prompted Title"]),
+                redirect_stdout(output),
+            ):
+                exit_code = new_markdown_file(path)
+
+            self.assertEqual(exit_code, 0)
+            self.assertIn("Title must not be empty.", output.getvalue())
+            document = load_markdown_document(path)
+            self.assertEqual(document.title, "Prompted Title")
+            self.assertTrue(document.draft)
+
+    def test_main_supports_new_command_without_docbase_env(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = Path(tmpdir) / "new-command.md"
+            previous_domain = os.environ.pop("DOCBASE_DOMAIN", None)
+            previous_token = os.environ.pop("DOCBASE_TOKEN", None)
+            self.addCleanup(_restore_env_var, "DOCBASE_DOMAIN", previous_domain)
+            self.addCleanup(_restore_env_var, "DOCBASE_TOKEN", previous_token)
+
+            output = io.StringIO()
+            with (
+                patch("builtins.input", return_value="CLI New Title"),
+                redirect_stdout(output),
+            ):
+                exit_code = main(["new", str(path)])
+
+            self.assertEqual(exit_code, 0)
+            self.assertIn("Created Markdown file", output.getvalue())
+            document = load_markdown_document(path)
+            self.assertEqual(document.title, "CLI New Title")
+            self.assertTrue(document.draft)
+
     def test_load_markdown_document_reads_expected_fields(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             path = Path(tmpdir) / "sample.md"

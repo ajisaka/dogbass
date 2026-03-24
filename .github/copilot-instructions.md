@@ -12,9 +12,9 @@
 
 ## Architecture
 
-- `dogbass/cli.py` is the primary command surface and defines the `push` and `pull` subcommands.
+- `dogbass/cli.py` is the primary command surface and defines the `new`, `push`, and `pull` subcommands.
 - `dogbass/docbase.py` contains the DocBase HTTP client and reads `DOCBASE_DOMAIN` / `DOCBASE_TOKEN` from the environment.
-- `dogbass/markdown.py` is responsible for YAML Front Matter parsing, Markdown serialization, and preserving the source file's newline convention when rewriting files.
+- `dogbass/markdown.py` is responsible for YAML Front Matter parsing, Markdown template creation, Markdown serialization, and preserving the source file's newline convention when rewriting files.
 - `main.py` is only a thin wrapper that forwards to `dogbass.cli:main`.
 - `pyproject.toml` defines the package metadata, console script, and setuptools build backend; `uv.lock` should stay in sync with dependency changes.
 - `tests/test_cli.py` covers the main CLI flows with mocked DocBase API interactions.
@@ -22,7 +22,8 @@
 ## Conventions
 
 - Keep user-facing documentation aligned with the installed-command workflow (`dogbass ...`), while using `uv run ...` for local repository validation.
+- `dogbass new <file>` is interactive: it prompts for a title and creates a file with `draft: true` by default.
 - Preserve Markdown file newline style when changing files through `push` or `pull`; this behavior is intentional and covered by tests.
-- The supported commands are `push` and `pull`; do not reintroduce the removed `update` alias unless explicitly requested.
+- The supported commands are `new`, `push`, and `pull`; do not reintroduce the removed `update` alias unless explicitly requested.
 - Use `uv`-managed commands when running Python in this repository instead of assuming a globally managed environment.
 - When adding dependencies, update `pyproject.toml` and refresh `uv.lock` together.
