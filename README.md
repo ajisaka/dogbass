@@ -25,6 +25,8 @@
 - `DOCBASE_DOMAIN`: DocBase の team domain
 - `DOCBASE_TOKEN`: DocBase API トークン
 
+DocBase API トークンは、DocBase の設定画面にあるアクセストークン作成画面から取得します。
+
 ```sh
 export DOCBASE_DOMAIN=your-team
 export DOCBASE_TOKEN=your-token
