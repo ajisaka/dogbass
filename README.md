@@ -12,6 +12,7 @@
 - `push`: ローカルの Markdown を DocBase に反映する
 - `pull`: DocBase の内容をローカルの Markdown に取り込む
 - `groups`: 利用できる DocBase グループ一覧を表示する
+- `install-hook`: commit 後に変更した dogbass 管理 Markdown を自動 push する git hook を入れる
 
 ## 前提
 
@@ -134,6 +135,19 @@ dogbass groups
 
 - `グループID<TAB>グループ名` の形式で出力します
 - `scope: group` と `groups: [...]` を設定するときに使えます
+
+### 5. commit 後に自動 push する hook を入れる
+
+git commit のたびに、そのコミットで追加・更新された dogbass 管理 Markdown を自動で `push` したい場合は、git の `post-commit` hook を入れられます。
+
+```sh
+dogbass install-hook
+```
+
+- `HEAD` のコミット差分に含まれる `*.md` を調べます
+- dogbass の Front Matter を持つ Markdown だけを自動で `push` します
+- 新しい Markdown ファイルを追加したときも、個別登録は不要です
+- 既存の `post-commit` hook が dogbass 管理外の場合は、上書きせずに失敗します
 
 ## よくある運用
 

@@ -10,7 +10,16 @@ from unittest.mock import patch
 
 from click.testing import CliRunner
 
-from dogbass.cli import main, new_markdown_file, pull_markdown_file, push_markdown_file
+from dogbass.cli import (
+    HOOK_MARKER,
+    install_post_commit_hook,
+    main,
+    new_markdown_file,
+    pull_markdown_file,
+    push_markdown_file,
+    render_post_commit_hook,
+    sync_committed_markdown_files,
+)
 from dogbass.docbase import DocBaseClient
 from dogbass.errors import DocBaseRequestError
 from dogbass.markdown import create_markdown_document, load_markdown_document
@@ -324,6 +333,46 @@ class DogbassTests(unittest.TestCase):
         self.assertEqual(result.exit_code, 0)
         self.assertIn("1\tDocBase", result.output)
         self.assertIn("2\tengineering", result.output)
+
+    def test_install_post_commit_hook_writes_hook_script(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            repo_root = Path(tmpdir)
+            hook_path = repo_root / ".git" / "hooks" / "post-commit"
+
+            with (
+                patch("dogbass.cli.get_git_repo_root", return_value=repo_root),
+                patch("dogbass.cli.get_git_hook_path", return_value=hook_path),
+            ):
+                exit_code = install_post_commit_hook("/tmp/dogbass")
+
+            self.assertEqual(exit_code, 0)
+            content = hook_path.read_text(encoding="utf-8")
+            self.assertIn(HOOK_MARKER, content)
+            self.assertEqual(content, render_post_commit_hook("/tmp/dogbass"))
+            self.assertTrue(hook_path.stat().st_mode & 0o111)
+
+    def test_sync_committed_markdown_files_pushes_only_managed_markdown(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            repo_root = Path(tmpdir)
+            managed_path = repo_root / "managed.md"
+            plain_path = repo_root / "plain.md"
+            managed_path.write_text(
+                "---\ntitle: Managed\ndraft: false\n---\n\nManaged body\n",
+                encoding="utf-8",
+            )
+            plain_path.write_text("# Plain\n", encoding="utf-8")
+            client = FakeDocBaseClient()
+
+            with patch("dogbass.cli.get_git_repo_root", return_value=repo_root):
+                with patch(
+                    "dogbass.cli.get_committed_markdown_files",
+                    return_value=[managed_path, plain_path],
+                ):
+                    pushed = sync_committed_markdown_files(client)
+
+            self.assertEqual(pushed, 1)
+            self.assertEqual(len(client.created_payloads), 1)
+            self.assertEqual(client.created_payloads[0]["title"], "Managed")
 
     def test_pull_markdown_file_updates_local_markdown(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:

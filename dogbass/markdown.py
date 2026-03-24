@@ -8,6 +8,8 @@ import frontmatter  # type: ignore[import-untyped]
 
 from dogbass.errors import DocBaseResponseError, FileConflictError, ValidationError
 
+DOGBASS_FRONT_MATTER_KEYS = {"draft", "notice", "scope", "groups", "id"}
+
 
 @dataclass(slots=True)
 class MarkdownDocument:
@@ -108,6 +110,14 @@ def load_markdown_document(path: Path) -> MarkdownDocument:
         groups=groups,
         document_id=document_id,
     )
+
+
+def is_dogbass_markdown(path: Path) -> bool:
+    if path.suffix != ".md" or not path.exists():
+        return False
+
+    post = frontmatter.load(path)
+    return any(key in post.metadata for key in DOGBASS_FRONT_MATTER_KEYS)
 
 
 def write_document_id(path: Path, document_id: int) -> None:

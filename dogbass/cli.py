@@ -2,14 +2,23 @@ from __future__ import annotations
 
 from functools import wraps
 from pathlib import Path
+import shlex
+import subprocess
+import sys
 from typing import Callable, ParamSpec, TypeVar
 
 import click
 
-from dogbass.errors import AppError, DocBaseResponseError, FileConflictError
+from dogbass.errors import (
+    AppError,
+    DocBaseResponseError,
+    FileConflictError,
+    ValidationError,
+)
 from dogbass.docbase import DocBaseClient
 from dogbass.markdown import (
     create_markdown_document,
+    is_dogbass_markdown,
     load_document_id,
     load_markdown_document,
     markdown_document_from_docbase,
@@ -19,6 +28,7 @@ from dogbass.markdown import (
 
 P = ParamSpec("P")
 R = TypeVar("R")
+HOOK_MARKER = "# Installed by dogbass install-hook"
 
 
 def app_error_handler(
@@ -106,6 +116,123 @@ def list_groups(client: DocBaseClient) -> int:
     return 0
 
 
+def install_post_commit_hook(executable: str) -> int:
+    repo_root = get_git_repo_root()
+    hook_path = get_git_hook_path(repo_root, "post-commit")
+    hook_path.parent.mkdir(parents=True, exist_ok=True)
+
+    if hook_path.exists():
+        existing = hook_path.read_text(encoding="utf-8")
+        if HOOK_MARKER not in existing:
+            raise FileConflictError(
+                f"refusing to overwrite existing git hook: {hook_path}"
+            )
+
+    hook_path.write_text(render_post_commit_hook(executable), encoding="utf-8")
+    hook_path.chmod(hook_path.stat().st_mode | 0o111)
+    click.echo(f"Installed post-commit hook at {hook_path}")
+    return 0
+
+
+def sync_committed_markdown_files(client: DocBaseClient, rev: str = "HEAD") -> int:
+    repo_root = get_git_repo_root()
+    pushed = 0
+    for markdown_path in get_committed_markdown_files(repo_root, rev):
+        if not is_dogbass_markdown(markdown_path):
+            continue
+        push_markdown_file(markdown_path, client)
+        pushed += 1
+    return pushed
+
+
+def get_git_repo_root() -> Path:
+    try:
+        result = subprocess.run(
+            ["git", "rev-parse", "--show-toplevel"],
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+    except (FileNotFoundError, subprocess.CalledProcessError) as exc:
+        raise ValidationError("not inside a git repository") from exc
+
+    return Path(result.stdout.strip())
+
+
+def get_git_hook_path(repo_root: Path, hook_name: str) -> Path:
+    try:
+        result = subprocess.run(
+            ["git", "rev-parse", "--git-path", f"hooks/{hook_name}"],
+            cwd=repo_root,
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+    except subprocess.CalledProcessError as exc:
+        raise ValidationError("failed to locate git hooks directory") from exc
+
+    hook_path = Path(result.stdout.strip())
+    if not hook_path.is_absolute():
+        hook_path = repo_root / hook_path
+    return hook_path
+
+
+def get_committed_markdown_files(repo_root: Path, rev: str) -> list[Path]:
+    try:
+        result = subprocess.run(
+            [
+                "git",
+                "diff-tree",
+                "--no-commit-id",
+                "--root",
+                "--name-status",
+                "-z",
+                "-r",
+                rev,
+                "--",
+                "*.md",
+            ],
+            cwd=repo_root,
+            check=True,
+            capture_output=True,
+        )
+    except subprocess.CalledProcessError as exc:
+        raise ValidationError(f"failed to inspect commit diff for {rev}") from exc
+
+    entries = [entry.decode("utf-8") for entry in result.stdout.split(b"\0") if entry]
+    files: list[Path] = []
+    index = 0
+    while index < len(entries):
+        status = entries[index]
+        index += 1
+        kind = status[0]
+
+        if kind in {"R", "C"}:
+            if index + 1 >= len(entries):
+                raise ValidationError("failed to parse git diff output")
+            index += 1
+            path_text = entries[index]
+            index += 1
+        else:
+            if index >= len(entries):
+                raise ValidationError("failed to parse git diff output")
+            path_text = entries[index]
+            index += 1
+
+        if kind not in {"A", "M", "R", "C"}:
+            continue
+
+        file_path = repo_root / path_text
+        if file_path.exists():
+            files.append(file_path)
+
+    return files
+
+
+def render_post_commit_hook(executable: str) -> str:
+    return f"#!/bin/sh\n{HOOK_MARKER}\n{shlex.quote(executable)} sync-commit\n"
+
+
 @click.group()
 def main() -> None:
     """Synchronize Markdown files with DocBase."""
@@ -152,3 +279,18 @@ def groups_command() -> None:
     """List available DocBase groups."""
     client = DocBaseClient.from_env()
     list_groups(client)
+
+
+@main.command("install-hook")
+@app_error_handler
+def install_hook_command() -> None:
+    """Install a git post-commit hook that pushes changed dogbass Markdown files."""
+    install_post_commit_hook(sys.argv[0])
+
+
+@main.command("sync-commit", hidden=True)
+@app_error_handler
+def sync_commit_command() -> None:
+    """Push changed dogbass Markdown files from the latest commit."""
+    client = DocBaseClient.from_env()
+    sync_committed_markdown_files(client)
