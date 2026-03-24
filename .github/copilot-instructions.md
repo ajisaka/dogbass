@@ -16,7 +16,7 @@
 - `dogbass/docbase.py` contains the DocBase HTTP client and reads `DOCBASE_DOMAIN` / `DOCBASE_TOKEN` from the environment.
 - `dogbass/markdown.py` is responsible for YAML Front Matter parsing, Markdown template creation, Markdown serialization, and preserving the source file's newline convention when rewriting files.
 - `main.py` is only a thin wrapper that forwards to `dogbass.cli:main`.
-- `pyproject.toml` defines the package metadata, console script, and setuptools build backend; `uv.lock` should stay in sync with dependency changes.
+- `pyproject.toml` defines the package metadata, console script, and in-repo PEP 517 build backend; `uv.lock` should stay in sync with dependency changes.
 - `tests/test_cli.py` covers the main CLI flows with mocked DocBase API interactions and uses `click.testing.CliRunner` for command-level tests.
 
 ## Conventions
