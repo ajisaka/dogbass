@@ -6,15 +6,9 @@ from typing import Any
 
 import httpx
 
+from dogbass.errors import ConfigurationError, DocBaseRequestError, DocBaseResponseError
+
 API_BASE_URL = "https://api.docbase.io"
-
-
-class DocBaseConfigurationError(ValueError):
-    """Raised when required DocBase configuration is missing."""
-
-
-class DocBaseApiError(RuntimeError):
-    """Raised when the DocBase API returns an error response."""
 
 
 @dataclass(slots=True)
@@ -38,9 +32,7 @@ class DocBaseClient:
         ]
         if missing:
             missing_names = ", ".join(missing)
-            raise DocBaseConfigurationError(
-                f"Missing required environment variables: {missing_names}"
-            )
+            raise ConfigurationError(f"missing environment variables: {missing_names}")
 
         assert domain is not None
         assert token is not None
@@ -73,13 +65,13 @@ class DocBaseClient:
             response.raise_for_status()
         except httpx.HTTPStatusError as exc:
             details = _extract_error_details(exc.response)
-            raise DocBaseApiError(
-                f"DocBase API request failed ({exc.response.status_code}): {details}"
+            raise DocBaseRequestError(
+                f"DocBase API error ({exc.response.status_code}): {details}"
             ) from exc
 
         data = response.json()
         if not isinstance(data, dict):
-            raise DocBaseApiError("DocBase API returned a non-object JSON response")
+            raise DocBaseResponseError("DocBase API returned invalid JSON")
         return data
 
 

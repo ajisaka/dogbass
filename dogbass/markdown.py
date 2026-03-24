@@ -6,6 +6,8 @@ from typing import Any
 
 import frontmatter  # type: ignore[import-untyped]
 
+from dogbass.errors import DocBaseResponseError, FileConflictError, ValidationError
+
 
 @dataclass(slots=True)
 class MarkdownDocument:
@@ -29,9 +31,9 @@ class MarkdownDocument:
 
 def create_markdown_document(path: Path, title: str) -> None:
     if path.exists():
-        raise FileExistsError(path)
+        raise FileConflictError(f"file already exists: {path}")
     if not title.strip():
-        raise ValueError("Title must not be empty")
+        raise ValidationError("title must not be empty")
 
     document = MarkdownDocument(
         path=path,
@@ -46,27 +48,27 @@ def create_markdown_document(path: Path, title: str) -> None:
 
 def load_document_id(path: Path) -> int:
     if path.suffix != ".md":
-        raise ValueError(f"Expected a Markdown file (*.md): {path}")
+        raise ValidationError(f"expected a Markdown file: {path}")
     if not path.exists():
-        raise FileNotFoundError(path)
+        raise ValidationError(f"file not found: {path}")
 
     post = frontmatter.load(path)
     document_id = _normalize_document_id(post.metadata.get("id"))
     if document_id is None:
-        raise ValueError("Markdown front matter must include an 'id' for pull")
+        raise ValidationError("missing document id in front matter")
     return document_id
 
 
 def load_markdown_document(path: Path) -> MarkdownDocument:
     if path.suffix != ".md":
-        raise ValueError(f"Expected a Markdown file (*.md): {path}")
+        raise ValidationError(f"expected a Markdown file: {path}")
     if not path.exists():
-        raise FileNotFoundError(path)
+        raise ValidationError(f"file not found: {path}")
 
     post = frontmatter.load(path)
     title = post.metadata.get("title")
     if not isinstance(title, str) or not title.strip():
-        raise ValueError("Markdown front matter must include a non-empty 'title'")
+        raise ValidationError("missing title in front matter")
 
     tags = _normalize_tags(post.metadata.get("tags"))
     draft = _normalize_draft(post.metadata.get("draft"))
@@ -116,21 +118,21 @@ def markdown_document_from_docbase(
     tags_payload = payload.get("tags")
 
     if not isinstance(title, str) or not title.strip():
-        raise ValueError("DocBase response did not include a valid 'title'")
+        raise DocBaseResponseError("DocBase response is missing title")
     if not isinstance(body, str):
-        raise ValueError("DocBase response did not include a valid 'body'")
+        raise DocBaseResponseError("DocBase response is missing body")
     if not isinstance(draft, bool):
-        raise ValueError("DocBase response did not include a valid 'draft'")
+        raise DocBaseResponseError("DocBase response is missing draft")
     if not isinstance(tags_payload, list):
-        raise ValueError("DocBase response did not include a valid 'tags'")
+        raise DocBaseResponseError("DocBase response is missing tags")
 
     tags: list[str] = []
     for tag in tags_payload:
         if not isinstance(tag, dict):
-            raise ValueError("DocBase response included an invalid tag entry")
+            raise DocBaseResponseError("DocBase response includes an invalid tag")
         name = tag.get("name")
         if not isinstance(name, str) or not name.strip():
-            raise ValueError("DocBase response included an invalid tag name")
+            raise DocBaseResponseError("DocBase response includes an invalid tag")
         tags.append(name.strip())
 
     return MarkdownDocument(
@@ -147,12 +149,12 @@ def _normalize_tags(raw_tags: Any) -> list[str]:
     if raw_tags is None:
         return []
     if not isinstance(raw_tags, list):
-        raise ValueError("Markdown front matter 'tags' must be a list")
+        raise ValidationError("front matter 'tags' must be a list")
 
     normalized_tags: list[str] = []
     for tag in raw_tags:
         if not isinstance(tag, str) or not tag.strip():
-            raise ValueError("Each tag must be a non-empty string")
+            raise ValidationError("front matter 'tags' must contain non-empty strings")
         normalized_tags.append(tag.strip())
     return normalized_tags
 
@@ -161,7 +163,7 @@ def _normalize_draft(raw_draft: Any) -> bool:
     if raw_draft is None:
         return False
     if not isinstance(raw_draft, bool):
-        raise ValueError("Markdown front matter 'draft' must be a boolean")
+        raise ValidationError("front matter 'draft' must be true or false")
     return raw_draft
 
 
@@ -172,7 +174,7 @@ def _normalize_document_id(raw_document_id: Any) -> int | None:
         return raw_document_id
     if isinstance(raw_document_id, str) and raw_document_id.isdigit():
         return int(raw_document_id)
-    raise ValueError("Markdown front matter 'id' must be an integer when present")
+    raise ValidationError("front matter 'id' must be an integer")
 
 
 def _render_post(path: Path, post: frontmatter.Post) -> str:

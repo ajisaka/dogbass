@@ -11,7 +11,8 @@ from unittest.mock import patch
 from click.testing import CliRunner
 
 from dogbass.cli import main, new_markdown_file, pull_markdown_file, push_markdown_file
-from dogbass.docbase import DocBaseClient, DocBaseConfigurationError
+from dogbass.docbase import DocBaseClient
+from dogbass.errors import DocBaseRequestError
 from dogbass.markdown import create_markdown_document, load_markdown_document
 
 
@@ -193,7 +194,10 @@ class DogbassTests(unittest.TestCase):
 
             result = self.runner.invoke(main, ["push", str(path)])
             self.assertEqual(result.exit_code, 1)
-            self.assertIsInstance(result.exception, DocBaseConfigurationError)
+            self.assertIn(
+                "Error: missing environment variables: DOCBASE_DOMAIN, DOCBASE_TOKEN",
+                result.output,
+            )
 
     def test_main_supports_push_command(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -335,9 +339,52 @@ class DogbassTests(unittest.TestCase):
                 result = self.runner.invoke(main, ["pull", "--id", "7", str(path)])
 
             self.assertEqual(result.exit_code, 1)
-            self.assertIn(
-                "Refusing to overwrite existing file with pull --id", result.output
+            self.assertIn("Error: refusing to overwrite existing file", result.output)
+
+    def test_main_shows_concise_error_for_missing_document_id(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = Path(tmpdir) / "missing-id.md"
+            path.write_text(
+                "---\ntitle: Sample\ndraft: false\n---\n\nBody\n",
+                encoding="utf-8",
             )
+
+            previous_domain = os.environ.get("DOCBASE_DOMAIN")
+            previous_token = os.environ.get("DOCBASE_TOKEN")
+            self.addCleanup(_restore_env_var, "DOCBASE_DOMAIN", previous_domain)
+            self.addCleanup(_restore_env_var, "DOCBASE_TOKEN", previous_token)
+            os.environ["DOCBASE_DOMAIN"] = "example"
+            os.environ["DOCBASE_TOKEN"] = "secret"
+
+            result = self.runner.invoke(main, ["pull", str(path)])
+
+            self.assertEqual(result.exit_code, 1)
+            self.assertIn("Error: missing document id in front matter", result.output)
+
+    def test_main_shows_concise_docbase_api_error(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = Path(tmpdir) / "command-post.md"
+            path.write_text(
+                "---\ntitle: Command Post\ndraft: false\n---\n\nCLI body\n",
+                encoding="utf-8",
+            )
+
+            previous_domain = os.environ.get("DOCBASE_DOMAIN")
+            previous_token = os.environ.get("DOCBASE_TOKEN")
+            self.addCleanup(_restore_env_var, "DOCBASE_DOMAIN", previous_domain)
+            self.addCleanup(_restore_env_var, "DOCBASE_TOKEN", previous_token)
+            os.environ["DOCBASE_DOMAIN"] = "example"
+            os.environ["DOCBASE_TOKEN"] = "secret"
+
+            with patch.object(
+                DocBaseClient,
+                "from_env",
+                side_effect=DocBaseRequestError("DocBase API error (403): forbidden"),
+            ):
+                result = self.runner.invoke(main, ["push", str(path)])
+
+            self.assertEqual(result.exit_code, 1)
+            self.assertIn("Error: DocBase API error (403): forbidden", result.output)
 
 
 def _restore_env_var(name: str, value: str | None) -> None:

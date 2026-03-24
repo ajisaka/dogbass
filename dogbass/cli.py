@@ -1,9 +1,12 @@
 from __future__ import annotations
 
+from functools import wraps
 from pathlib import Path
+from typing import Callable, ParamSpec, TypeVar
 
 import click
 
+from dogbass.errors import AppError, DocBaseResponseError, FileConflictError
 from dogbass.docbase import DocBaseClient
 from dogbass.markdown import (
     create_markdown_document,
@@ -13,6 +16,23 @@ from dogbass.markdown import (
     write_document_id,
     write_markdown_document,
 )
+
+P = ParamSpec("P")
+R = TypeVar("R")
+
+
+def app_error_handler(
+    function: Callable[P, R],
+) -> Callable[P, R]:
+    @wraps(function)
+    def wrapper(*args: P.args, **kwargs: P.kwargs) -> R:
+        try:
+            return function(*args, **kwargs)
+        except AppError as exc:
+            click.echo(f"Error: {exc}", err=True)
+            raise click.exceptions.Exit(exc.exit_code) from exc
+
+    return wrapper
 
 
 def prompt_title() -> str:
@@ -38,9 +58,7 @@ def push_markdown_file(markdown_path: Path, client: DocBaseClient) -> int:
         response = client.create_post(payload)
         created_id = response.get("id")
         if not isinstance(created_id, int):
-            raise RuntimeError(
-                "DocBase create response did not include an integer 'id'"
-            )
+            raise DocBaseResponseError("DocBase response is missing document id")
         write_document_id(markdown_path, created_id)
         click.echo(f"Created DocBase post {created_id} from {markdown_path}")
         return 0
@@ -69,6 +87,7 @@ def main() -> None:
 
 @main.command("new")
 @click.argument("markdown_file", type=click.Path(path_type=Path))
+@app_error_handler
 def new_command(markdown_file: Path) -> None:
     """Create a new Markdown file for DocBase."""
     new_markdown_file(markdown_file)
@@ -76,6 +95,7 @@ def new_command(markdown_file: Path) -> None:
 
 @main.command("push")
 @click.argument("markdown_file", type=click.Path(exists=True, path_type=Path))
+@app_error_handler
 def push_command(markdown_file: Path) -> None:
     """Create or update a DocBase document from a Markdown file."""
     client = DocBaseClient.from_env()
@@ -90,11 +110,10 @@ def push_command(markdown_file: Path) -> None:
     help="DocBase document id to import. Required when creating a new local file.",
 )
 @click.argument("markdown_file", type=click.Path(path_type=Path))
+@app_error_handler
 def pull_command(markdown_file: Path, document_id: int | None) -> None:
     """Fetch a DocBase document into a Markdown file."""
     if document_id is not None and markdown_file.exists():
-        raise click.ClickException(
-            f"Refusing to overwrite existing file with pull --id: {markdown_file}"
-        )
+        raise FileConflictError(f"refusing to overwrite existing file: {markdown_file}")
     client = DocBaseClient.from_env()
     pull_markdown_file(markdown_file, client, document_id=document_id)

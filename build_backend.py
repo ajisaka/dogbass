@@ -33,28 +33,13 @@ def build_wheel(
             continue
         files.append((path.relative_to(ROOT).as_posix(), path.read_bytes()))
 
-    files.extend(
-        [
-            (f"{dist_info_dir}/METADATA", _metadata_contents(project).encode("utf-8")),
-            (f"{dist_info_dir}/WHEEL", _wheel_contents().encode("utf-8")),
-            (
-                f"{dist_info_dir}/entry_points.txt",
-                _entry_points_contents(project).encode("utf-8"),
-            ),
-        ]
+    return _build_zip_wheel(
+        wheel_path=wheel_path,
+        wheel_name=wheel_name,
+        dist_info_dir=dist_info_dir,
+        project=project,
+        files=files,
     )
-
-    record_lines: list[str] = []
-    with zipfile.ZipFile(wheel_path, "w", compression=zipfile.ZIP_DEFLATED) as wheel:
-        for relative_path, content in files:
-            wheel.writestr(relative_path, content)
-            record_lines.append(_record_line(relative_path, content))
-
-        record_path = f"{dist_info_dir}/RECORD"
-        record_lines.append(f"{record_path},,")
-        wheel.writestr(record_path, "\n".join(record_lines).encode("utf-8"))
-
-    return wheel_name
 
 
 def build_editable(
@@ -62,7 +47,24 @@ def build_editable(
     config_settings: dict[str, object] | None = None,
     metadata_directory: str | None = None,
 ) -> str:
-    return build_wheel(wheel_directory, config_settings, metadata_directory)
+    del config_settings, metadata_directory
+
+    project = _load_project_metadata()
+    dist_name = _normalize_distribution_name(project["name"])
+    version = project["version"]
+    wheel_name = f"{dist_name}-{version}-py3-none-any.whl"
+    wheel_path = Path(wheel_directory) / wheel_name
+    dist_info_dir = f"{dist_name}-{version}.dist-info"
+    editable_pth = f"{dist_name}-editable.pth"
+
+    files = [(editable_pth, f"{ROOT}\n".encode("utf-8"))]
+    return _build_zip_wheel(
+        wheel_path=wheel_path,
+        wheel_name=wheel_name,
+        dist_info_dir=dist_info_dir,
+        project=project,
+        files=files,
+    )
 
 
 def get_requires_for_build_wheel(
@@ -174,6 +176,39 @@ def _metadata_contents(project: dict[str, Any]) -> str:
         lines.append(f"Requires-Dist: {dependency}")
 
     return "\n".join(lines) + "\n"
+
+
+def _build_zip_wheel(
+    *,
+    wheel_path: Path,
+    wheel_name: str,
+    dist_info_dir: str,
+    project: dict[str, Any],
+    files: list[tuple[str, bytes]],
+) -> str:
+    wheel_files = list(files)
+    wheel_files.extend(
+        [
+            (f"{dist_info_dir}/METADATA", _metadata_contents(project).encode("utf-8")),
+            (f"{dist_info_dir}/WHEEL", _wheel_contents().encode("utf-8")),
+            (
+                f"{dist_info_dir}/entry_points.txt",
+                _entry_points_contents(project).encode("utf-8"),
+            ),
+        ]
+    )
+
+    record_lines: list[str] = []
+    with zipfile.ZipFile(wheel_path, "w", compression=zipfile.ZIP_DEFLATED) as wheel:
+        for relative_path, content in wheel_files:
+            wheel.writestr(relative_path, content)
+            record_lines.append(_record_line(relative_path, content))
+
+        record_path = f"{dist_info_dir}/RECORD"
+        record_lines.append(f"{record_path},,")
+        wheel.writestr(record_path, "\n".join(record_lines).encode("utf-8"))
+
+    return wheel_name
 
 
 def _wheel_contents() -> str:
