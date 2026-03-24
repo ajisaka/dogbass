@@ -28,6 +28,14 @@ export DOCBASE_DOMAIN=your-team
 export DOCBASE_TOKEN=your-token
 ```
 
+## インストール
+
+初回導入と更新は、同じコマンドで行えます。
+
+```sh
+uv tool install --force git+https://github.com/ajisaka/dogbass.git
+```
+
 ## Markdown ファイル形式
 
 DocBase と同期する Markdown ファイルは、先頭に YAML Front Matter を持ちます。
@@ -57,7 +65,7 @@ id: 123 # 新規作成時は省略可
 ### 1. 新規作成または更新する
 
 ```sh
-uv run dogbass push path/to/document.md
+dogbass push path/to/document.md
 ```
 
 - Front Matter に `id` が無い場合は、DocBase に新規作成します
@@ -67,7 +75,7 @@ uv run dogbass push path/to/document.md
 ### 2. DocBase の内容を取り込む
 
 ```sh
-uv run dogbass pull path/to/document.md
+dogbass pull path/to/document.md
 ```
 
 - Front Matter に `id` が必要です
@@ -79,13 +87,13 @@ uv run dogbass pull path/to/document.md
 ### ローカルから初回投稿する
 
 1. `id` なしで Markdown を作る
-2. `uv run dogbass push path/to/document.md` を実行する
+2. `dogbass push path/to/document.md` を実行する
 3. 書き戻された `id` を含む Markdown を継続して編集する
 
 ### DocBase の内容をローカルに反映する
 
 1. `id` を持つ Markdown を用意する
-2. `uv run dogbass pull path/to/document.md` を実行する
+2. `dogbass pull path/to/document.md` を実行する
 3. 必要なら編集後に `push` で再反映する
 
 ## 参照
