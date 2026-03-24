@@ -23,6 +23,7 @@
 
 - Keep user-facing documentation aligned with the installed-command workflow (`dogbass ...`), while using `uv run ...` for local repository validation.
 - `dogbass new <file>` is interactive: it prompts for a title and creates a file with `draft: true` by default.
+- `dogbass pull <file>` updates an existing local file by reading its front matter `id`, while `dogbass pull --id <docbase-id> <file>` imports a DocBase post into a new local file.
 - Preserve Markdown file newline style when changing files through `push` or `pull`; this behavior is intentional and covered by tests.
 - The supported commands are `new`, `push`, and `pull`; do not reintroduce the removed `update` alias unless explicitly requested.
 - Use `uv`-managed commands when running Python in this repository instead of assuming a globally managed environment.

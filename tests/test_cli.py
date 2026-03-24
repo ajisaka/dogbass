@@ -231,6 +231,21 @@ class DogbassTests(unittest.TestCase):
             self.assertEqual(document.tags, ["remote", "docbase"])
             self.assertTrue(document.draft)
 
+    def test_pull_markdown_file_creates_new_file_when_id_is_given(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = Path(tmpdir) / "imported-post.md"
+            client = FakeDocBaseClient()
+
+            exit_code = pull_markdown_file(path, client, document_id=7)
+
+            self.assertEqual(exit_code, 0)
+            document = load_markdown_document(path)
+            self.assertEqual(document.document_id, 7)
+            self.assertEqual(document.title, "Pulled Post")
+            self.assertEqual(document.body, "Pulled body")
+            self.assertEqual(document.tags, ["remote", "docbase"])
+            self.assertTrue(document.draft)
+
     def test_pull_markdown_file_preserves_crlf_newlines(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             path = Path(tmpdir) / "pulled-crlf.md"
@@ -272,6 +287,30 @@ class DogbassTests(unittest.TestCase):
             content = path.read_bytes()
             self.assertNotIn(b"\r\r\n", content)
             self.assertIn(b"Line 1\r\nLine 2\r\n", content)
+
+    def test_main_supports_pull_id_for_new_file(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = Path(tmpdir) / "pull-id.md"
+            previous_domain = os.environ.get("DOCBASE_DOMAIN")
+            previous_token = os.environ.get("DOCBASE_TOKEN")
+            self.addCleanup(_restore_env_var, "DOCBASE_DOMAIN", previous_domain)
+            self.addCleanup(_restore_env_var, "DOCBASE_TOKEN", previous_token)
+            os.environ["DOCBASE_DOMAIN"] = "example"
+            os.environ["DOCBASE_TOKEN"] = "secret"
+
+            fake_client = FakeDocBaseClient()
+
+            output = io.StringIO()
+            with (
+                patch.object(DocBaseClient, "from_env", return_value=fake_client),
+                redirect_stdout(output),
+            ):
+                exit_code = main(["pull", "--id", "7", str(path)])
+
+            self.assertEqual(exit_code, 0)
+            self.assertIn("Pulled DocBase post 7", output.getvalue())
+            document = load_markdown_document(path)
+            self.assertEqual(document.document_id, 7)
 
 
 def _restore_env_var(name: str, value: str | None) -> None:

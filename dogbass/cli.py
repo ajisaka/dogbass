@@ -34,6 +34,12 @@ def build_parser() -> argparse.ArgumentParser:
         "pull", help="Fetch a DocBase document into a Markdown file."
     )
     pull_parser.add_argument(
+        "--id",
+        dest="document_id",
+        type=int,
+        help="DocBase document id to import. Required when creating a new local file.",
+    )
+    pull_parser.add_argument(
         "markdown_file", help="Path to the Markdown file to refresh from DocBase."
     )
 
@@ -75,8 +81,11 @@ def push_markdown_file(markdown_path: Path, client: DocBaseClient) -> int:
     return 0
 
 
-def pull_markdown_file(markdown_path: Path, client: DocBaseClient) -> int:
-    document_id = load_document_id(markdown_path)
+def pull_markdown_file(
+    markdown_path: Path, client: DocBaseClient, document_id: int | None = None
+) -> int:
+    if document_id is None:
+        document_id = load_document_id(markdown_path)
     payload = client.get_post(document_id)
     document = markdown_document_from_docbase(markdown_path, payload, document_id)
     write_markdown_document(document)
@@ -95,7 +104,9 @@ def main(argv: list[str] | None = None) -> int:
     if args.command == "push":
         return push_markdown_file(Path(args.markdown_file), client)
     if args.command == "pull":
-        return pull_markdown_file(Path(args.markdown_file), client)
+        return pull_markdown_file(
+            Path(args.markdown_file), client, document_id=args.document_id
+        )
 
     parser.error(f"Unsupported command: {args.command}")
     return 2

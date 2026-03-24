@@ -93,6 +93,15 @@ dogbass pull path/to/document.md
 - 指定した `id` の DocBase ドキュメントを取得し、ローカル Markdown のタイトル・タグ・`draft`・本文を更新します
 - 既存ファイルの改行コードは維持します
 
+既存ファイルがまだ無い場合は、`--id` を指定して新規に取り込めます。
+
+```sh
+dogbass pull --id 123 path/to/document.md
+```
+
+- DocBase のドキュメント ID を指定して、新しい Markdown ファイルを作成します
+- 生成されるファイルには `title` / `tags` / `draft` / `id` / 本文が入ります
+
 ## よくある運用
 
 ### ローカルから初回投稿する
@@ -108,6 +117,12 @@ dogbass pull path/to/document.md
 1. `id` を持つ Markdown を用意する
 2. `dogbass pull path/to/document.md` を実行する
 3. 必要なら編集後に `push` で再反映する
+
+### 既存の DocBase ドキュメントをローカルに取り込んで始める
+
+1. `dogbass pull --id 123 path/to/document.md` を実行する
+2. 作成された Markdown を編集する
+3. 必要なら `dogbass push path/to/document.md` で再反映する
 
 ## 参照
 
