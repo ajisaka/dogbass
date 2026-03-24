@@ -18,9 +18,7 @@ def build_parser() -> argparse.ArgumentParser:
     subparsers = parser.add_subparsers(dest="command", required=True)
 
     push_parser = subparsers.add_parser(
-        "push",
-        aliases=["update"],
-        help="Create or update a DocBase document from a Markdown file.",
+        "push", help="Create or update a DocBase document from a Markdown file."
     )
     push_parser.add_argument("markdown_file", help="Path to the Markdown file to sync.")
 
@@ -68,7 +66,7 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     client = DocBaseClient.from_env()
 
-    if args.command in {"push", "update"}:
+    if args.command == "push":
         return push_markdown_file(Path(args.markdown_file), client)
     if args.command == "pull":
         return pull_markdown_file(Path(args.markdown_file), client)

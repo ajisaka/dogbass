@@ -161,29 +161,6 @@ class DogbassTests(unittest.TestCase):
             self.assertEqual(exit_code, 0)
             self.assertIn("Created DocBase post 42", output.getvalue())
 
-    def test_main_supports_update_alias(self) -> None:
-        with tempfile.TemporaryDirectory() as tmpdir:
-            path = Path(tmpdir) / "alias-post.md"
-            path.write_text(
-                "---\ntitle: Alias Post\ndraft: false\n---\n\nAlias body\n",
-                encoding="utf-8",
-            )
-
-            previous_domain = os.environ.get("DOCBASE_DOMAIN")
-            previous_token = os.environ.get("DOCBASE_TOKEN")
-            self.addCleanup(_restore_env_var, "DOCBASE_DOMAIN", previous_domain)
-            self.addCleanup(_restore_env_var, "DOCBASE_TOKEN", previous_token)
-            os.environ["DOCBASE_DOMAIN"] = "example"
-            os.environ["DOCBASE_TOKEN"] = "secret"
-
-            fake_client = FakeDocBaseClient()
-
-            with patch.object(DocBaseClient, "from_env", return_value=fake_client):
-                exit_code = main(["update", str(path)])
-
-            self.assertEqual(exit_code, 0)
-            self.assertEqual(len(fake_client.created_payloads), 1)
-
     def test_pull_markdown_file_updates_local_markdown(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             path = Path(tmpdir) / "pulled-post.md"
