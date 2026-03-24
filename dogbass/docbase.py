@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import os
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, cast
 
 import httpx
 
@@ -39,17 +39,39 @@ class DocBaseClient:
         return cls(domain=domain, token=token)
 
     def create_post(self, payload: dict[str, Any]) -> dict[str, Any]:
-        return self._request("POST", f"/teams/{self.domain}/posts", payload)
+        return self._request_object("POST", f"/teams/{self.domain}/posts", payload)
 
     def get_post(self, post_id: int) -> dict[str, Any]:
-        return self._request("GET", f"/teams/{self.domain}/posts/{post_id}")
+        return self._request_object("GET", f"/teams/{self.domain}/posts/{post_id}")
+
+    def list_groups(self) -> list[dict[str, Any]]:
+        payload = self._request_json("GET", f"/teams/{self.domain}/groups")
+        if not isinstance(payload, list):
+            raise DocBaseResponseError("DocBase API returned invalid groups JSON")
+
+        groups: list[dict[str, Any]] = []
+        for group in payload:
+            if not isinstance(group, dict):
+                raise DocBaseResponseError("DocBase API returned an invalid group")
+            groups.append(cast(dict[str, Any], group))
+        return groups
 
     def update_post(self, post_id: int, payload: dict[str, Any]) -> dict[str, Any]:
-        return self._request("PATCH", f"/teams/{self.domain}/posts/{post_id}", payload)
+        return self._request_object(
+            "PATCH", f"/teams/{self.domain}/posts/{post_id}", payload
+        )
 
-    def _request(
+    def _request_object(
         self, method: str, path: str, payload: dict[str, Any] | None = None
     ) -> dict[str, Any]:
+        data = self._request_json(method, path, payload)
+        if not isinstance(data, dict):
+            raise DocBaseResponseError("DocBase API returned invalid JSON")
+        return cast(dict[str, Any], data)
+
+    def _request_json(
+        self, method: str, path: str, payload: dict[str, Any] | None = None
+    ) -> Any:
         headers = {
             "X-DocBaseToken": self.token,
             "Content-Type": "application/json",
@@ -69,10 +91,7 @@ class DocBaseClient:
                 f"DocBase API error ({exc.response.status_code}): {details}"
             ) from exc
 
-        data = response.json()
-        if not isinstance(data, dict):
-            raise DocBaseResponseError("DocBase API returned invalid JSON")
-        return data
+        return response.json()
 
 
 def _extract_error_details(response: httpx.Response) -> str:

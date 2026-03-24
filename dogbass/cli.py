@@ -81,6 +81,17 @@ def pull_markdown_file(
     return 0
 
 
+def list_groups(client: DocBaseClient) -> int:
+    groups = client.list_groups()
+    for group in groups:
+        group_id = group.get("id")
+        group_name = group.get("name")
+        if not isinstance(group_id, int) or not isinstance(group_name, str):
+            raise DocBaseResponseError("DocBase API returned an invalid group")
+        click.echo(f"{group_id}\t{group_name}")
+    return 0
+
+
 @click.group()
 def main() -> None:
     """Synchronize Markdown files with DocBase."""
@@ -118,3 +129,11 @@ def pull_command(markdown_file: Path, document_id: int | None) -> None:
         raise FileConflictError(f"refusing to overwrite existing file: {markdown_file}")
     client = DocBaseClient.from_env()
     pull_markdown_file(markdown_file, client, document_id=document_id)
+
+
+@main.command("groups")
+@app_error_handler
+def groups_command() -> None:
+    """List available DocBase groups."""
+    client = DocBaseClient.from_env()
+    list_groups(client)

@@ -11,6 +11,7 @@
 - `new`: DocBase 用の Markdown ファイルを新規作成する
 - `push`: ローカルの Markdown を DocBase に反映する
 - `pull`: DocBase の内容をローカルの Markdown に取り込む
+- `groups`: 利用できる DocBase グループ一覧を表示する
 
 ## 前提
 
@@ -110,6 +111,17 @@ dogbass pull --id 123 path/to/document.md
 - DocBase のドキュメント ID を指定して、新しい Markdown ファイルを作成します
 - 生成されるファイルには `title` / `tags` / `draft` / `scope` / `groups` / `id` / 本文が入ります
 - 既に同名ファイルがある場合は、誤上書きを防ぐため失敗します
+
+### 4. グループ ID を調べる
+
+`scope: group` を使う前に、利用できるグループ ID を確認できます。
+
+```sh
+dogbass groups
+```
+
+- `グループID<TAB>グループ名` の形式で出力します
+- `scope: group` と `groups: [...]` を設定するときに使えます
 
 ## よくある運用
 

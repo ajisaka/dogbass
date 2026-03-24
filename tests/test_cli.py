@@ -43,6 +43,12 @@ class FakeDocBaseClient(DocBaseClient):
             "groups": [],
         }
 
+    def list_groups(self) -> list[dict[str, object]]:
+        return [
+            {"id": 1, "name": "DocBase"},
+            {"id": 2, "name": "engineering"},
+        ]
+
 
 class DogbassTests(unittest.TestCase):
     def setUp(self) -> None:
@@ -234,6 +240,23 @@ class DogbassTests(unittest.TestCase):
 
             self.assertEqual(result.exit_code, 0)
             self.assertIn("Created DocBase post 42", result.output)
+
+    def test_main_supports_groups_command(self) -> None:
+        previous_domain = os.environ.get("DOCBASE_DOMAIN")
+        previous_token = os.environ.get("DOCBASE_TOKEN")
+        self.addCleanup(_restore_env_var, "DOCBASE_DOMAIN", previous_domain)
+        self.addCleanup(_restore_env_var, "DOCBASE_TOKEN", previous_token)
+        os.environ["DOCBASE_DOMAIN"] = "example"
+        os.environ["DOCBASE_TOKEN"] = "secret"
+
+        fake_client = FakeDocBaseClient()
+
+        with patch.object(DocBaseClient, "from_env", return_value=fake_client):
+            result = self.runner.invoke(main, ["groups"])
+
+        self.assertEqual(result.exit_code, 0)
+        self.assertIn("1\tDocBase", result.output)
+        self.assertIn("2\tengineering", result.output)
 
     def test_pull_markdown_file_updates_local_markdown(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
