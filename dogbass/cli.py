@@ -1,7 +1,8 @@
 from __future__ import annotations
 
-import argparse
 from pathlib import Path
+
+import click
 
 from dogbass.docbase import DocBaseClient
 from dogbass.markdown import (
@@ -14,50 +15,18 @@ from dogbass.markdown import (
 )
 
 
-def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(prog="dogbass")
-    subparsers = parser.add_subparsers(dest="command", required=True)
-
-    new_parser = subparsers.add_parser(
-        "new", help="Create a new Markdown file for DocBase."
-    )
-    new_parser.add_argument(
-        "markdown_file", help="Path to the Markdown file to create."
-    )
-
-    push_parser = subparsers.add_parser(
-        "push", help="Create or update a DocBase document from a Markdown file."
-    )
-    push_parser.add_argument("markdown_file", help="Path to the Markdown file to sync.")
-
-    pull_parser = subparsers.add_parser(
-        "pull", help="Fetch a DocBase document into a Markdown file."
-    )
-    pull_parser.add_argument(
-        "--id",
-        dest="document_id",
-        type=int,
-        help="DocBase document id to import. Required when creating a new local file.",
-    )
-    pull_parser.add_argument(
-        "markdown_file", help="Path to the Markdown file to refresh from DocBase."
-    )
-
-    return parser
-
-
 def prompt_title() -> str:
     while True:
-        title = input("Title: ").strip()
+        title = click.prompt("Title", prompt_suffix=": ").strip()
         if title:
             return title
-        print("Title must not be empty.")
+        click.echo("Title must not be empty.")
 
 
 def new_markdown_file(markdown_path: Path) -> int:
     title = prompt_title()
     create_markdown_document(markdown_path, title)
-    print(f"Created Markdown file at {markdown_path}")
+    click.echo(f"Created Markdown file at {markdown_path}")
     return 0
 
 
@@ -73,11 +42,11 @@ def push_markdown_file(markdown_path: Path, client: DocBaseClient) -> int:
                 "DocBase create response did not include an integer 'id'"
             )
         write_document_id(markdown_path, created_id)
-        print(f"Created DocBase post {created_id} from {markdown_path}")
+        click.echo(f"Created DocBase post {created_id} from {markdown_path}")
         return 0
 
     client.update_post(document.document_id, payload)
-    print(f"Updated DocBase post {document.document_id} from {markdown_path}")
+    click.echo(f"Updated DocBase post {document.document_id} from {markdown_path}")
     return 0
 
 
@@ -89,24 +58,43 @@ def pull_markdown_file(
     payload = client.get_post(document_id)
     document = markdown_document_from_docbase(markdown_path, payload, document_id)
     write_markdown_document(document)
-    print(f"Pulled DocBase post {document_id} into {markdown_path}")
+    click.echo(f"Pulled DocBase post {document_id} into {markdown_path}")
     return 0
 
 
-def main(argv: list[str] | None = None) -> int:
-    parser = build_parser()
-    args = parser.parse_args(argv)
+@click.group()
+def main() -> None:
+    """Synchronize Markdown files with DocBase."""
 
-    if args.command == "new":
-        return new_markdown_file(Path(args.markdown_file))
 
+@main.command("new")
+@click.argument("markdown_file", type=click.Path(path_type=Path))
+def new_command(markdown_file: Path) -> None:
+    """Create a new Markdown file for DocBase."""
+    new_markdown_file(markdown_file)
+
+
+@main.command("push")
+@click.argument("markdown_file", type=click.Path(exists=True, path_type=Path))
+def push_command(markdown_file: Path) -> None:
+    """Create or update a DocBase document from a Markdown file."""
     client = DocBaseClient.from_env()
-    if args.command == "push":
-        return push_markdown_file(Path(args.markdown_file), client)
-    if args.command == "pull":
-        return pull_markdown_file(
-            Path(args.markdown_file), client, document_id=args.document_id
-        )
+    push_markdown_file(markdown_file, client)
 
-    parser.error(f"Unsupported command: {args.command}")
-    return 2
+
+@main.command("pull")
+@click.option(
+    "--id",
+    "document_id",
+    type=int,
+    help="DocBase document id to import. Required when creating a new local file.",
+)
+@click.argument("markdown_file", type=click.Path(path_type=Path))
+def pull_command(markdown_file: Path, document_id: int | None) -> None:
+    """Fetch a DocBase document into a Markdown file."""
+    if document_id is not None and markdown_file.exists():
+        raise click.ClickException(
+            f"Refusing to overwrite existing file with pull --id: {markdown_file}"
+        )
+    client = DocBaseClient.from_env()
+    pull_markdown_file(markdown_file, client, document_id=document_id)

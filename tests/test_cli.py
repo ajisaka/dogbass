@@ -8,6 +8,8 @@ from contextlib import redirect_stdout
 from pathlib import Path
 from unittest.mock import patch
 
+from click.testing import CliRunner
+
 from dogbass.cli import main, new_markdown_file, pull_markdown_file, push_markdown_file
 from dogbass.docbase import DocBaseClient, DocBaseConfigurationError
 from dogbass.markdown import create_markdown_document, load_markdown_document
@@ -40,6 +42,9 @@ class FakeDocBaseClient(DocBaseClient):
 
 
 class DogbassTests(unittest.TestCase):
+    def setUp(self) -> None:
+        self.runner = CliRunner()
+
     def test_create_markdown_document_uses_draft_true_by_default(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             path = Path(tmpdir) / "new.md"
@@ -59,7 +64,7 @@ class DogbassTests(unittest.TestCase):
             output = io.StringIO()
 
             with (
-                patch("builtins.input", side_effect=["", "Prompted Title"]),
+                patch("dogbass.cli.click.prompt", side_effect=["", "Prompted Title"]),
                 redirect_stdout(output),
             ):
                 exit_code = new_markdown_file(path)
@@ -78,15 +83,12 @@ class DogbassTests(unittest.TestCase):
             self.addCleanup(_restore_env_var, "DOCBASE_DOMAIN", previous_domain)
             self.addCleanup(_restore_env_var, "DOCBASE_TOKEN", previous_token)
 
-            output = io.StringIO()
-            with (
-                patch("builtins.input", return_value="CLI New Title"),
-                redirect_stdout(output),
-            ):
-                exit_code = main(["new", str(path)])
+            result = self.runner.invoke(
+                main, ["new", str(path)], input="CLI New Title\n"
+            )
 
-            self.assertEqual(exit_code, 0)
-            self.assertIn("Created Markdown file", output.getvalue())
+            self.assertEqual(result.exit_code, 0)
+            self.assertIn("Created Markdown file", result.output)
             document = load_markdown_document(path)
             self.assertEqual(document.title, "CLI New Title")
             self.assertTrue(document.draft)
@@ -177,13 +179,21 @@ class DogbassTests(unittest.TestCase):
             )
 
     def test_main_requires_docbase_environment_variables(self) -> None:
-        previous_domain = os.environ.pop("DOCBASE_DOMAIN", None)
-        previous_token = os.environ.pop("DOCBASE_TOKEN", None)
-        self.addCleanup(_restore_env_var, "DOCBASE_DOMAIN", previous_domain)
-        self.addCleanup(_restore_env_var, "DOCBASE_TOKEN", previous_token)
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = Path(tmpdir) / "sample.md"
+            path.write_text(
+                "---\ntitle: Sample\ndraft: false\n---\n\nBody\n",
+                encoding="utf-8",
+            )
 
-        with self.assertRaises(DocBaseConfigurationError):
-            main(["push", "sample.md"])
+            previous_domain = os.environ.pop("DOCBASE_DOMAIN", None)
+            previous_token = os.environ.pop("DOCBASE_TOKEN", None)
+            self.addCleanup(_restore_env_var, "DOCBASE_DOMAIN", previous_domain)
+            self.addCleanup(_restore_env_var, "DOCBASE_TOKEN", previous_token)
+
+            result = self.runner.invoke(main, ["push", str(path)])
+            self.assertEqual(result.exit_code, 1)
+            self.assertIsInstance(result.exception, DocBaseConfigurationError)
 
     def test_main_supports_push_command(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -202,15 +212,11 @@ class DogbassTests(unittest.TestCase):
 
             fake_client = FakeDocBaseClient()
 
-            output = io.StringIO()
-            with (
-                patch.object(DocBaseClient, "from_env", return_value=fake_client),
-                redirect_stdout(output),
-            ):
-                exit_code = main(["push", str(path)])
+            with patch.object(DocBaseClient, "from_env", return_value=fake_client):
+                result = self.runner.invoke(main, ["push", str(path)])
 
-            self.assertEqual(exit_code, 0)
-            self.assertIn("Created DocBase post 42", output.getvalue())
+            self.assertEqual(result.exit_code, 0)
+            self.assertIn("Created DocBase post 42", result.output)
 
     def test_pull_markdown_file_updates_local_markdown(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -300,17 +306,38 @@ class DogbassTests(unittest.TestCase):
 
             fake_client = FakeDocBaseClient()
 
-            output = io.StringIO()
-            with (
-                patch.object(DocBaseClient, "from_env", return_value=fake_client),
-                redirect_stdout(output),
-            ):
-                exit_code = main(["pull", "--id", "7", str(path)])
+            with patch.object(DocBaseClient, "from_env", return_value=fake_client):
+                result = self.runner.invoke(main, ["pull", "--id", "7", str(path)])
 
-            self.assertEqual(exit_code, 0)
-            self.assertIn("Pulled DocBase post 7", output.getvalue())
+            self.assertEqual(result.exit_code, 0)
+            self.assertIn("Pulled DocBase post 7", result.output)
             document = load_markdown_document(path)
             self.assertEqual(document.document_id, 7)
+
+    def test_main_rejects_pull_id_when_target_file_exists(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = Path(tmpdir) / "pull-id-existing.md"
+            path.write_text(
+                "---\ntitle: Existing\ndraft: false\nid: 7\n---\n\nExisting body\n",
+                encoding="utf-8",
+            )
+
+            previous_domain = os.environ.get("DOCBASE_DOMAIN")
+            previous_token = os.environ.get("DOCBASE_TOKEN")
+            self.addCleanup(_restore_env_var, "DOCBASE_DOMAIN", previous_domain)
+            self.addCleanup(_restore_env_var, "DOCBASE_TOKEN", previous_token)
+            os.environ["DOCBASE_DOMAIN"] = "example"
+            os.environ["DOCBASE_TOKEN"] = "secret"
+
+            fake_client = FakeDocBaseClient()
+
+            with patch.object(DocBaseClient, "from_env", return_value=fake_client):
+                result = self.runner.invoke(main, ["pull", "--id", "7", str(path)])
+
+            self.assertEqual(result.exit_code, 1)
+            self.assertIn(
+                "Refusing to overwrite existing file with pull --id", result.output
+            )
 
 
 def _restore_env_var(name: str, value: str | None) -> None:

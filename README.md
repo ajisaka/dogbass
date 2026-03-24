@@ -101,6 +101,7 @@ dogbass pull --id 123 path/to/document.md
 
 - DocBase のドキュメント ID を指定して、新しい Markdown ファイルを作成します
 - 生成されるファイルには `title` / `tags` / `draft` / `id` / 本文が入ります
+- 既に同名ファイルがある場合は、誤上書きを防ぐため失敗します
 
 ## よくある運用
 
