@@ -3,7 +3,7 @@
 ## Commands
 
 - This repository is a package-based Python CLI managed with `uv`.
-- End users are expected to install and update it with `uv tool install --force git+https://github.com/ajisaka/dogbass.git` and invoke the `dogbass` command directly.
+- End users are expected to install and update it with `uv tool install --python 3.12 --force git+https://github.com/ajisaka/dogbass.git` and invoke the `dogbass` command directly.
 - For local development inside the repository, use `uv run dogbass --help` to exercise the CLI entrypoint.
 - Lint with `uv run ruff check .`
 - Type-check with `uv run mypy .`
@@ -18,6 +18,7 @@
 - `main.py` is only a thin wrapper that forwards to `dogbass.cli:main`.
 - `pyproject.toml` defines the package metadata, console script, and in-repo PEP 517 build backend; `uv.lock` should stay in sync with dependency changes.
 - `tests/test_cli.py` covers the main CLI flows with mocked DocBase API interactions and uses `click.testing.CliRunner` for command-level tests.
+- `dogbass` now targets Python 3.12+ because the declared `click` / `httpx` dependency set must run unchanged in the supported runtime.
 
 ## Conventions
 

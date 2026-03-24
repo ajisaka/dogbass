@@ -14,7 +14,7 @@
 
 ## 前提
 
-- Python 3.11 以上
+- Python 3.12 以上
 - `uv`
 - DocBase の team domain
 - DocBase API トークン
@@ -34,7 +34,7 @@ export DOCBASE_TOKEN=your-token
 初回導入と更新は、同じコマンドで行えます。
 
 ```sh
-uv tool install --force git+https://github.com/ajisaka/dogbass.git
+uv tool install --python 3.12 --force git+https://github.com/ajisaka/dogbass.git
 ```
 
 ## Markdown ファイル形式
