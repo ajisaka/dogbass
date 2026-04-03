@@ -47,7 +47,11 @@ class MarkdownDocument:
         return payload
 
 
-def create_markdown_document(path: Path, title: str) -> None:
+def create_markdown_document(
+    path: Path,
+    title: str,
+    available_groups: list[dict[str, Any]] | None = None,
+) -> None:
     if path.exists():
         raise FileConflictError(f"file already exists: {path}")
     if not title.strip():
@@ -64,7 +68,7 @@ def create_markdown_document(path: Path, title: str) -> None:
         groups=[],
         document_id=None,
     )
-    write_markdown_document(document)
+    write_markdown_document(document, available_groups=available_groups)
 
 
 def load_document_id(path: Path) -> int:
@@ -126,7 +130,10 @@ def write_document_id(path: Path, document_id: int) -> None:
     path.write_text(_render_post(path, post), encoding="utf-8", newline="")
 
 
-def write_markdown_document(document: MarkdownDocument) -> None:
+def write_markdown_document(
+    document: MarkdownDocument,
+    available_groups: list[dict[str, Any]] | None = None,
+) -> None:
     metadata = {
         "title": document.title,
         "tags": document.tags,
@@ -146,7 +153,7 @@ def write_markdown_document(document: MarkdownDocument) -> None:
         rendered = _render_post(document.path, post)
     else:
         rendered = _normalize_newlines(frontmatter.dumps(post))
-        rendered = _insert_template_comments(rendered, document)
+        rendered = _insert_template_comments(rendered, document, available_groups or [])
         if not rendered.endswith("\n"):
             rendered = f"{rendered}\n"
     document.path.write_text(rendered, encoding="utf-8", newline="")
@@ -295,7 +302,11 @@ def _validate_scope_groups(scope: str | None, groups: list[int]) -> None:
         )
 
 
-def _insert_template_comments(rendered: str, document: MarkdownDocument) -> str:
+def _insert_template_comments(
+    rendered: str,
+    document: MarkdownDocument,
+    available_groups: list[dict[str, Any]] | None = None,
+) -> str:
     if document.notice is not None:
         notice_line = f"notice: {'true' if document.notice else 'false'}\n"
         commented_notice = (
@@ -306,11 +317,22 @@ def _insert_template_comments(rendered: str, document: MarkdownDocument) -> str:
 
     if document.scope is not None:
         scope_line = f"scope: {document.scope}\n"
+        groups_hint = "# groups: [123]  # required when scope is group\n"
+        if available_groups is not None and len(available_groups) > 0:
+            valid_groups = [
+                g
+                for g in available_groups
+                if isinstance(g.get("id"), int) and isinstance(g.get("name"), str)
+            ]
+            if len(valid_groups) > 0:
+                group_items = "".join(
+                    f"#   - {g['id']}  # {g['name']}\n" for g in valid_groups
+                )
+                groups_hint = "# groups:\n" + group_items
         commented_scope = (
             f"scope: {document.scope}\n"
             "# scope: everyone\n"
-            "# scope: group\n"
-            "# groups: [123]  # required when scope is group\n"
+            "# scope: group\n" + groups_hint
         )
         rendered = rendered.replace(scope_line, commented_scope, 1)
 

@@ -5,7 +5,7 @@ from pathlib import Path
 import shlex
 import subprocess
 import sys
-from typing import Callable, ParamSpec, TypeVar
+from typing import Any, Callable, ParamSpec, TypeVar
 
 import click
 
@@ -53,9 +53,12 @@ def prompt_title() -> str:
         click.echo("Title must not be empty.")
 
 
-def new_markdown_file(markdown_path: Path) -> int:
+def new_markdown_file(
+    markdown_path: Path,
+    available_groups: list[dict[str, Any]] | None = None,
+) -> int:
     title = prompt_title()
-    create_markdown_document(markdown_path, title)
+    create_markdown_document(markdown_path, title, available_groups=available_groups)
     click.echo(f"Created Markdown file at {markdown_path}")
     return 0
 
@@ -243,7 +246,13 @@ def main() -> None:
 @app_error_handler
 def new_command(markdown_file: Path) -> None:
     """Create a new Markdown file for DocBase."""
-    new_markdown_file(markdown_file)
+    available_groups: list[dict[str, Any]] = []
+    try:
+        client = DocBaseClient.from_env()
+        available_groups = client.list_groups()
+    except AppError:
+        pass
+    new_markdown_file(markdown_file, available_groups=available_groups)
 
 
 @main.command("push")

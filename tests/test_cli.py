@@ -121,7 +121,43 @@ class DogbassTests(unittest.TestCase):
             self.assertEqual(document.title, "CLI New Title")
             self.assertTrue(document.draft)
 
-    def test_load_markdown_document_reads_expected_fields(self) -> None:
+    def test_main_new_command_includes_group_comments_when_credentials_present(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = Path(tmpdir) / "new-with-groups.md"
+            fake_client = FakeDocBaseClient()
+
+            with patch("dogbass.cli.DocBaseClient.from_env", return_value=fake_client):
+                result = self.runner.invoke(
+                    main, ["new", str(path)], input="Group Test\n"
+                )
+
+            self.assertEqual(result.exit_code, 0)
+            content = path.read_text(encoding="utf-8")
+            self.assertIn(
+                "# groups:\n#   - 1  # DocBase\n#   - 2  # engineering", content
+            )
+
+    def test_main_new_command_works_without_group_comments_when_no_credentials(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = Path(tmpdir) / "new-no-creds.md"
+            previous_domain = os.environ.pop("DOCBASE_DOMAIN", None)
+            previous_token = os.environ.pop("DOCBASE_TOKEN", None)
+            self.addCleanup(_restore_env_var, "DOCBASE_DOMAIN", previous_domain)
+            self.addCleanup(_restore_env_var, "DOCBASE_TOKEN", previous_token)
+
+            result = self.runner.invoke(
+                main, ["new", str(path)], input="No Creds Title\n"
+            )
+
+            self.assertEqual(result.exit_code, 0)
+            content = path.read_text(encoding="utf-8")
+            self.assertIn("# groups: [123]  # required when scope is group", content)
+            self.assertNotIn("available groups:", content)
+
         with tempfile.TemporaryDirectory() as tmpdir:
             path = Path(tmpdir) / "sample.md"
             path.write_text(
