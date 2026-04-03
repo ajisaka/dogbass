@@ -57,8 +57,12 @@ def prompt_title() -> str:
 def new_markdown_file(
     markdown_path: Path | None,
     available_groups: list[dict[str, Any]] | None = None,
+    title: str | None = None,
 ) -> int:
-    title = prompt_title()
+    if title is None:
+        title = prompt_title()
+    elif not title.strip():
+        raise ValidationError("title must not be empty")
     if markdown_path is None:
         content = render_new_markdown_content(title, available_groups)
         click.echo(content, nl=False)
@@ -249,11 +253,17 @@ def main() -> None:
 
 
 @main.command("new")
+@click.option(
+    "--title",
+    "title",
+    default=None,
+    help="Title of the document (skips interactive prompt).",
+)
 @click.argument(
     "markdown_file", type=click.Path(path_type=Path), required=False, default=None
 )
 @app_error_handler
-def new_command(markdown_file: Path | None) -> None:
+def new_command(markdown_file: Path | None, title: str | None) -> None:
     """Create a new Markdown file for DocBase, or print to stdout if no file is given."""
     available_groups: list[dict[str, Any]] = []
     try:
@@ -261,7 +271,7 @@ def new_command(markdown_file: Path | None) -> None:
         available_groups = client.list_groups()
     except AppError:
         pass
-    new_markdown_file(markdown_file, available_groups=available_groups)
+    new_markdown_file(markdown_file, available_groups=available_groups, title=title)
 
 
 @main.command("push")
