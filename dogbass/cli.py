@@ -22,6 +22,7 @@ from dogbass.markdown import (
     load_document_id,
     load_markdown_document,
     markdown_document_from_docbase,
+    render_new_markdown_content,
     write_document_id,
     write_markdown_document,
 )
@@ -54,12 +55,18 @@ def prompt_title() -> str:
 
 
 def new_markdown_file(
-    markdown_path: Path,
+    markdown_path: Path | None,
     available_groups: list[dict[str, Any]] | None = None,
 ) -> int:
     title = prompt_title()
-    create_markdown_document(markdown_path, title, available_groups=available_groups)
-    click.echo(f"Created Markdown file at {markdown_path}")
+    if markdown_path is None:
+        content = render_new_markdown_content(title, available_groups)
+        click.echo(content, nl=False)
+    else:
+        create_markdown_document(
+            markdown_path, title, available_groups=available_groups
+        )
+        click.echo(f"Created Markdown file at {markdown_path}")
     return 0
 
 
@@ -242,10 +249,12 @@ def main() -> None:
 
 
 @main.command("new")
-@click.argument("markdown_file", type=click.Path(path_type=Path))
+@click.argument(
+    "markdown_file", type=click.Path(path_type=Path), required=False, default=None
+)
 @app_error_handler
-def new_command(markdown_file: Path) -> None:
-    """Create a new Markdown file for DocBase."""
+def new_command(markdown_file: Path | None) -> None:
+    """Create a new Markdown file for DocBase, or print to stdout if no file is given."""
     available_groups: list[dict[str, Any]] = []
     try:
         client = DocBaseClient.from_env()

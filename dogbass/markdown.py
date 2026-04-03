@@ -152,11 +152,46 @@ def write_markdown_document(
     if document.path.exists():
         rendered = _render_post(document.path, post)
     else:
-        rendered = _normalize_newlines(frontmatter.dumps(post))
-        rendered = _insert_template_comments(rendered, document, available_groups or [])
-        if not rendered.endswith("\n"):
-            rendered = f"{rendered}\n"
+        rendered = _render_new_document(post, document, available_groups)
     document.path.write_text(rendered, encoding="utf-8", newline="")
+
+
+def render_new_markdown_content(
+    title: str,
+    available_groups: list[dict[str, Any]] | None = None,
+) -> str:
+    document = MarkdownDocument(
+        path=Path("new.md"),
+        title=title.strip(),
+        body="",
+        tags=[],
+        draft=True,
+        notice=True,
+        scope="private",
+        groups=[],
+        document_id=None,
+    )
+    metadata = {
+        "title": document.title,
+        "tags": document.tags,
+        "draft": document.draft,
+        "notice": document.notice,
+        "scope": document.scope,
+    }
+    post = frontmatter.Post(document.body, **metadata)
+    return _render_new_document(post, document, available_groups)
+
+
+def _render_new_document(
+    post: frontmatter.Post,
+    document: MarkdownDocument,
+    available_groups: list[dict[str, Any]] | None = None,
+) -> str:
+    rendered = _normalize_newlines(frontmatter.dumps(post))
+    rendered = _insert_template_comments(rendered, document, available_groups or [])
+    if not rendered.endswith("\n"):
+        rendered = f"{rendered}\n"
+    return rendered
 
 
 def markdown_document_from_docbase(

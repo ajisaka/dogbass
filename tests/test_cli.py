@@ -121,6 +121,20 @@ class DogbassTests(unittest.TestCase):
             self.assertEqual(document.title, "CLI New Title")
             self.assertTrue(document.draft)
 
+    def test_main_new_command_prints_to_stdout_when_no_file_given(self) -> None:
+        fake_client = FakeDocBaseClient()
+
+        with patch("dogbass.cli.DocBaseClient.from_env", return_value=fake_client):
+            result = self.runner.invoke(main, ["new"], input="Stdout Title\n")
+
+        self.assertEqual(result.exit_code, 0)
+        self.assertIn("title: Stdout Title", result.output)
+        self.assertIn("draft: true", result.output)
+        self.assertIn(
+            "# groups:\n#   - 1  # DocBase\n#   - 2  # engineering", result.output
+        )
+        self.assertNotIn("Created Markdown file", result.output)
+
     def test_main_new_command_includes_group_comments_when_credentials_present(
         self,
     ) -> None:
