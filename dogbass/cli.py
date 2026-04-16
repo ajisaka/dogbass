@@ -1,10 +1,13 @@
 from __future__ import annotations
 
+
 from functools import wraps
 from pathlib import Path
+import re
 import shlex
 import subprocess
 import sys
+import unicodedata
 from typing import Any, Callable, ParamSpec, TypeVar
 
 import click
@@ -44,6 +47,15 @@ def app_error_handler(
             raise click.exceptions.Exit(exc.exit_code) from exc
 
     return wrapper
+
+
+def title_to_filename(title: str) -> Path:
+    normalized = unicodedata.normalize("NFKC", title)
+    slug = normalized.lower()
+    slug = re.sub(r"[^\w\s-]", "", slug)
+    slug = re.sub(r"[\s_]+", "-", slug)
+    slug = slug.strip("-")
+    return Path(f"{slug}.md")
 
 
 def prompt_title() -> str:
@@ -259,12 +271,32 @@ def main() -> None:
     default=None,
     help="Title of the document (skips interactive prompt).",
 )
+@click.option(
+    "--title-as-filename",
+    "-F",
+    "title_as_filename",
+    is_flag=True,
+    default=False,
+    help="Derive the output filename from the title.",
+)
 @click.argument(
     "markdown_file", type=click.Path(path_type=Path), required=False, default=None
 )
 @app_error_handler
-def new_command(markdown_file: Path | None, title: str | None) -> None:
+def new_command(
+    markdown_file: Path | None, title: str | None, title_as_filename: bool
+) -> None:
     """Create a new Markdown file for DocBase, or print to stdout if no file is given."""
+    if title_as_filename:
+        if markdown_file is not None:
+            raise ValidationError(
+                "--title-as-filename (-F) cannot be used with a file argument"
+            )
+        if title is None:
+            title = prompt_title()
+        elif not title.strip():
+            raise ValidationError("title must not be empty")
+        markdown_file = title_to_filename(title)
     available_groups: list[dict[str, Any]] = []
     try:
         client = DocBaseClient.from_env()
