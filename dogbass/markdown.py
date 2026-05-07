@@ -1,10 +1,13 @@
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
+from io import StringIO
 from pathlib import Path
 from typing import Any
 
 import frontmatter  # type: ignore[import-untyped]
+from ruamel.yaml import YAML  # type: ignore[import-untyped]
 
 from dogbass.errors import DocBaseResponseError, FileConflictError, ValidationError
 
@@ -375,18 +378,58 @@ def _insert_template_comments(
 
 
 def _render_post(path: Path, post: frontmatter.Post) -> str:
-    rendered = _normalize_newlines(frontmatter.dumps(post))
-    newline, had_trailing_newline = _detect_newline_style(path)
+    raw_bytes = path.read_bytes()
+    raw_text = raw_bytes.decode("utf-8")
+
+    fm_yaml = _extract_raw_front_matter_yaml(raw_text)
+
+    yaml = YAML()
+    yaml.preserve_quotes = True
+    yaml.width = 4096
+
+    data = yaml.load(fm_yaml) or {}
+
+    for key in [k for k in data if k not in post.metadata]:
+        del data[key]
+    for key, value in post.metadata.items():
+        data[key] = value
+
+    stream = StringIO()
+    yaml.dump(data, stream)
+    new_fm = stream.getvalue()
+
+    rendered = _normalize_newlines(f"---\n{new_fm}---\n{post.content}")
+
+    if b"\r\n" in raw_bytes:
+        newline = "\r\n"
+    elif b"\n" in raw_bytes:
+        newline = "\n"
+    elif b"\r" in raw_bytes:
+        newline = "\r"
+    else:
+        newline = "\n"
+    had_trailing_newline = raw_bytes.endswith((b"\r\n", b"\n", b"\r"))
 
     if newline != "\n":
         rendered = rendered.replace("\n", newline)
-
     if had_trailing_newline and not rendered.endswith(newline):
         rendered = f"{rendered}{newline}"
     if not had_trailing_newline and rendered.endswith(newline):
         rendered = rendered[: -len(newline)]
 
     return rendered
+
+
+def _extract_raw_front_matter_yaml(content: str) -> str:
+    """Return the raw YAML string from the front matter block (LF-normalized)."""
+    normalized = content.replace("\r\n", "\n").replace("\r", "\n")
+    if not normalized.startswith("---\n"):
+        return ""
+    rest = normalized[4:]
+    match = re.search(r"(?m)^---(?:\n|$)", rest)
+    if match is None:
+        return ""
+    return rest[: match.start()]
 
 
 def _detect_newline_style(path: Path) -> tuple[str, bool]:

@@ -595,6 +595,65 @@ class DogbassTests(unittest.TestCase):
             self.assertEqual(result.exit_code, 1)
             self.assertIn("Error: missing document id in front matter", result.output)
 
+    def test_pull_preserves_front_matter_comments(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = Path(tmpdir) / "commented.md"
+            path.write_text(
+                "---\n"
+                "title: Old Title\n"
+                "tags: []\n"
+                "draft: true\n"
+                "notice: true\n"
+                "# notice: false\n"
+                "scope: private\n"
+                "# scope: everyone\n"
+                "# scope: group\n"
+                "# groups: [123]  # required when scope is group\n"
+                "id: 7\n"
+                "---\n"
+                "\n"
+                "Old body\n",
+                encoding="utf-8",
+            )
+            client = FakeDocBaseClient()
+
+            exit_code = pull_markdown_file(path, client)
+
+            self.assertEqual(exit_code, 0)
+            content = path.read_text(encoding="utf-8")
+            self.assertIn("# notice: false", content)
+            self.assertIn("# scope: everyone", content)
+            self.assertIn("# scope: group", content)
+
+    def test_push_preserves_front_matter_comments(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = Path(tmpdir) / "commented-push.md"
+            path.write_text(
+                "---\n"
+                "title: New Post\n"
+                "tags: [docs]\n"
+                "draft: false\n"
+                "notice: true\n"
+                "# notice: false\n"
+                "scope: private\n"
+                "# scope: everyone\n"
+                "# scope: group\n"
+                "# groups: [123]  # required when scope is group\n"
+                "---\n"
+                "\n"
+                "Post body\n",
+                encoding="utf-8",
+            )
+            client = FakeDocBaseClient()
+
+            exit_code = push_markdown_file(path, client)
+
+            self.assertEqual(exit_code, 0)
+            content = path.read_text(encoding="utf-8")
+            self.assertIn("id: 42", content)
+            self.assertIn("# notice: false", content)
+            self.assertIn("# scope: everyone", content)
+
     def test_main_shows_concise_docbase_api_error(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             path = Path(tmpdir) / "command-post.md"
