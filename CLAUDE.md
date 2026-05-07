@@ -41,4 +41,5 @@ Data flows: CLI handler → Markdown parser (load local file) → DocBase HTTP c
 - Preserve Markdown file newline style (LF/CRLF) when rewriting through `push` or `pull`; this is intentional and covered by tests.
 - The supported commands are `new`, `push`, and `pull`; do not reintroduce the removed `update` alias.
 - When adding dependencies, update `pyproject.toml` and refresh `uv.lock` together.
+- When releasing a new version, update `version` in `pyproject.toml` (the `--version` flag reads it via `importlib.metadata`).
 - `tests/test_cli.py` uses `click.testing.CliRunner` and a `FakeDocBaseClient` mock; keep new tests in this pattern.

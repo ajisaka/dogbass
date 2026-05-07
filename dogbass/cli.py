@@ -260,6 +260,7 @@ def render_post_commit_hook(executable: str) -> str:
 
 
 @click.group()
+@click.version_option(package_name="dogbass")
 def main() -> None:
     """Synchronize Markdown files with DocBase."""
 
