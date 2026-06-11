@@ -22,7 +22,11 @@ from dogbass.cli import (
 )
 from dogbass.docbase import DocBaseClient
 from dogbass.errors import DocBaseRequestError
-from dogbass.markdown import create_markdown_document, load_markdown_document
+from dogbass.markdown import (
+    _has_front_matter,
+    create_markdown_document,
+    load_markdown_document,
+)
 
 
 class FakeDocBaseClient(DocBaseClient):
@@ -678,6 +682,29 @@ class DogbassTests(unittest.TestCase):
 
             self.assertEqual(result.exit_code, 1)
             self.assertIn("Error: DocBase API error (403): forbidden", result.output)
+
+    def test_has_front_matter_detects_lf_block(self) -> None:
+        text = "---\ntitle: x\n---\n\nbody\n"
+        self.assertTrue(_has_front_matter(text))
+
+    def test_has_front_matter_detects_crlf_block(self) -> None:
+        text = "---\r\ntitle: x\r\n---\r\n\r\nbody\r\n"
+        self.assertTrue(_has_front_matter(text))
+
+    def test_has_front_matter_rejects_plain_text(self) -> None:
+        self.assertFalse(_has_front_matter("# Heading\n\nbody\n"))
+
+    def test_has_front_matter_rejects_empty_text(self) -> None:
+        self.assertFalse(_has_front_matter(""))
+
+    def test_has_front_matter_rejects_unterminated_marker(self) -> None:
+        self.assertFalse(
+            _has_front_matter("---\ntitle: x\nbody without closing marker\n")
+        )
+
+    def test_has_front_matter_rejects_horizontal_rule(self) -> None:
+        # A markdown horizontal rule mid-document is not front matter.
+        self.assertFalse(_has_front_matter("# Title\n\n---\n\nbody\n"))
 
 
 def _restore_env_var(name: str, value: str | None) -> None:

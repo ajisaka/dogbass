@@ -420,6 +420,15 @@ def _render_post(path: Path, post: frontmatter.Post) -> str:
     return rendered
 
 
+def _has_front_matter(content: str) -> bool:
+    """Return True iff ``content`` starts with a closed YAML front matter block."""
+    normalized = content.replace("\r\n", "\n").replace("\r", "\n")
+    if not normalized.startswith("---\n"):
+        return False
+    rest = normalized[4:]
+    return re.search(r"(?m)^---(?:\n|$)", rest) is not None
+
+
 def _extract_raw_front_matter_yaml(content: str) -> str:
     """Return the raw YAML string from the front matter block (LF-normalized)."""
     normalized = content.replace("\r\n", "\n").replace("\r", "\n")
