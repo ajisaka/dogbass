@@ -79,13 +79,15 @@ def init_markdown_document(
     title: str,
     available_groups: list[dict[str, Any]] | None = None,
 ) -> None:
-    if not path.exists() or not path.is_file():
+    if not path.exists():
         raise ValidationError(f"file not found: {path}")
+    if not path.is_file():
+        raise ValidationError(f"not a file: {path}")
     if not title.strip():
         raise ValidationError("title must not be empty")
 
     raw_bytes = path.read_bytes()
-    raw_text = raw_bytes.decode("utf-8")
+    raw_text = raw_bytes.decode("utf-8-sig")
     if _has_front_matter(raw_text):
         raise FileConflictError(f"file already has front matter: {path}")
 

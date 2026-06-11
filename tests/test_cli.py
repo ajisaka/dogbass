@@ -791,6 +791,20 @@ class DogbassTests(unittest.TestCase):
             with self.assertRaises(ValidationError):
                 init_markdown_document(path, "   ")
 
+    def test_init_markdown_document_preserves_no_trailing_newline(self) -> None:
+        from dogbass.markdown import init_markdown_document
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = Path(tmpdir) / "no-newline.md"
+            path.write_bytes(b"body without trailing newline")
+
+            init_markdown_document(path, "no-newline")
+
+            content = path.read_bytes()
+            self.assertFalse(content.endswith(b"\n"))
+            self.assertTrue(content.startswith(b"---\n"))
+            self.assertIn(b"body without trailing newline", content)
+
 
 def _restore_env_var(name: str, value: str | None) -> None:
     if value is None:
