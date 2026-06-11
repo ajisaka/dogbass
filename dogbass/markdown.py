@@ -74,6 +74,64 @@ def create_markdown_document(
     write_markdown_document(document, available_groups=available_groups)
 
 
+def init_markdown_document(
+    path: Path,
+    title: str,
+    available_groups: list[dict[str, Any]] | None = None,
+) -> None:
+    if not path.exists() or not path.is_file():
+        raise ValidationError(f"file not found: {path}")
+    if not title.strip():
+        raise ValidationError("title must not be empty")
+
+    raw_bytes = path.read_bytes()
+    raw_text = raw_bytes.decode("utf-8")
+    if _has_front_matter(raw_text):
+        raise FileConflictError(f"file already has front matter: {path}")
+
+    if b"\r\n" in raw_bytes:
+        newline = "\r\n"
+    elif b"\n" in raw_bytes:
+        newline = "\n"
+    elif b"\r" in raw_bytes:
+        newline = "\r"
+    else:
+        newline = "\n"
+    had_trailing_newline = raw_bytes.endswith((b"\r\n", b"\n", b"\r"))
+
+    body = raw_text.replace("\r\n", "\n").replace("\r", "\n")
+
+    document = MarkdownDocument(
+        path=path,
+        title=title.strip(),
+        body=body,
+        tags=[],
+        draft=True,
+        notice=True,
+        scope="private",
+        groups=[],
+        document_id=None,
+    )
+    metadata = {
+        "title": document.title,
+        "tags": document.tags,
+        "draft": document.draft,
+        "notice": document.notice,
+        "scope": document.scope,
+    }
+    post = frontmatter.Post(document.body, **metadata)
+    rendered = _render_new_document(post, document, available_groups)
+
+    if newline != "\n":
+        rendered = rendered.replace("\n", newline)
+    if had_trailing_newline and not rendered.endswith(newline):
+        rendered = f"{rendered}{newline}"
+    if not had_trailing_newline and rendered.endswith(newline):
+        rendered = rendered[: -len(newline)]
+
+    path.write_text(rendered, encoding="utf-8", newline="")
+
+
 def load_document_id(path: Path) -> int:
     if path.suffix != ".md":
         raise ValidationError(f"expected a Markdown file: {path}")

@@ -712,6 +712,85 @@ class DogbassTests(unittest.TestCase):
         text = "---\ntitle: x\n---\n\nbody\n\n---\n"
         self.assertTrue(_has_front_matter(text))
 
+    def test_init_markdown_document_adds_front_matter_to_plain_lf_file(self) -> None:
+        from dogbass.markdown import init_markdown_document
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = Path(tmpdir) / "notes.md"
+            path.write_text("# Heading\n\nHello world.\n", encoding="utf-8")
+
+            init_markdown_document(path, "notes")
+
+            document = load_markdown_document(path)
+            self.assertEqual(document.title, "notes")
+            self.assertTrue(document.draft)
+            self.assertTrue(document.notice)
+            self.assertEqual(document.scope, "private")
+            self.assertEqual(document.tags, [])
+            self.assertEqual(document.groups, [])
+            self.assertIsNone(document.document_id)
+            self.assertIn("# Heading", document.body)
+            self.assertIn("Hello world.", document.body)
+            content = path.read_text(encoding="utf-8")
+            self.assertTrue(content.startswith("---\n"))
+            self.assertIn("# notice: false", content)
+            self.assertIn("# scope: everyone", content)
+            self.assertIn("# scope: group", content)
+            self.assertIn("# groups: [123]  # required when scope is group", content)
+
+    def test_init_markdown_document_preserves_crlf_newlines(self) -> None:
+        from dogbass.markdown import init_markdown_document
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = Path(tmpdir) / "crlf.md"
+            path.write_bytes(b"# Heading\r\n\r\nHello.\r\n")
+
+            init_markdown_document(path, "crlf")
+
+            content = path.read_bytes()
+            self.assertIn(b"\r\n", content)
+            self.assertNotIn(b"\r\r\n", content)
+            self.assertTrue(content.startswith(b"---\r\n"))
+            self.assertTrue(content.endswith(b"\r\n"))
+            self.assertIn(b"# Heading\r\n", content)
+
+    def test_init_markdown_document_rejects_file_with_existing_front_matter(
+        self,
+    ) -> None:
+        from dogbass.markdown import init_markdown_document
+        from dogbass.errors import FileConflictError
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = Path(tmpdir) / "already.md"
+            original = "---\ntitle: x\n---\n\nbody\n"
+            path.write_text(original, encoding="utf-8")
+
+            with self.assertRaises(FileConflictError):
+                init_markdown_document(path, "already")
+
+            self.assertEqual(path.read_text(encoding="utf-8"), original)
+
+    def test_init_markdown_document_rejects_missing_file(self) -> None:
+        from dogbass.markdown import init_markdown_document
+        from dogbass.errors import ValidationError
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = Path(tmpdir) / "does-not-exist.md"
+
+            with self.assertRaises(ValidationError):
+                init_markdown_document(path, "anything")
+
+    def test_init_markdown_document_rejects_empty_title(self) -> None:
+        from dogbass.markdown import init_markdown_document
+        from dogbass.errors import ValidationError
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = Path(tmpdir) / "notes.md"
+            path.write_text("body\n", encoding="utf-8")
+
+            with self.assertRaises(ValidationError):
+                init_markdown_document(path, "   ")
+
 
 def _restore_env_var(name: str, value: str | None) -> None:
     if value is None:
