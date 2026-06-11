@@ -21,6 +21,7 @@ from dogbass.errors import (
 from dogbass.docbase import DocBaseClient
 from dogbass.markdown import (
     create_markdown_document,
+    init_markdown_document,
     is_dogbass_markdown,
     load_document_id,
     load_markdown_document,
@@ -355,3 +356,24 @@ def sync_commit_command() -> None:
     """Push changed dogbass Markdown files from the latest commit."""
     client = DocBaseClient.from_env()
     sync_committed_markdown_files(client)
+
+
+@main.command("init")
+@click.argument(
+    "file",
+    type=click.Path(exists=True, dir_okay=False, path_type=Path),
+)
+@app_error_handler
+def init_command(file: Path) -> None:
+    """Add dogbass front matter to an existing file (title from filename stem)."""
+    title = file.stem
+    if not title.strip():
+        raise ValidationError("filename must have a non-empty stem")
+    available_groups: list[dict[str, Any]] = []
+    try:
+        client = DocBaseClient.from_env()
+        available_groups = client.list_groups()
+    except AppError:
+        pass
+    init_markdown_document(file, title, available_groups=available_groups)
+    click.echo(f"Initialized front matter in {file}")

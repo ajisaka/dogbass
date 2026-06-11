@@ -805,6 +805,86 @@ class DogbassTests(unittest.TestCase):
             self.assertTrue(content.startswith(b"---\n"))
             self.assertIn(b"body without trailing newline", content)
 
+    def test_main_supports_init_command_on_md_file(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = Path(tmpdir) / "Existing Notes.md"
+            path.write_text("Hello world.\n", encoding="utf-8")
+            fake_client = FakeDocBaseClient()
+
+            with patch("dogbass.cli.DocBaseClient.from_env", return_value=fake_client):
+                result = self.runner.invoke(main, ["init", str(path)])
+
+            self.assertEqual(result.exit_code, 0)
+            self.assertIn("Initialized front matter in", result.output)
+            document = load_markdown_document(path)
+            self.assertEqual(document.title, "Existing Notes")
+            self.assertTrue(document.draft)
+            self.assertEqual(document.scope, "private")
+            self.assertIn("Hello world.", document.body)
+            content = path.read_text(encoding="utf-8")
+            self.assertIn(
+                "# groups:\n#   - 1  # DocBase\n#   - 2  # engineering", content
+            )
+
+    def test_main_init_command_works_on_non_md_extension(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = Path(tmpdir) / "notes.txt"
+            path.write_text("plain text body\n", encoding="utf-8")
+            previous_domain = os.environ.pop("DOCBASE_DOMAIN", None)
+            previous_token = os.environ.pop("DOCBASE_TOKEN", None)
+            self.addCleanup(_restore_env_var, "DOCBASE_DOMAIN", previous_domain)
+            self.addCleanup(_restore_env_var, "DOCBASE_TOKEN", previous_token)
+
+            result = self.runner.invoke(main, ["init", str(path)])
+
+            self.assertEqual(result.exit_code, 0)
+            content = path.read_text(encoding="utf-8")
+            self.assertTrue(content.startswith("---\n"))
+            self.assertIn("title: notes", content)
+            self.assertIn("plain text body", content)
+            self.assertIn("# groups: [123]  # required when scope is group", content)
+
+    def test_main_init_command_works_on_extensionless_file(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = Path(tmpdir) / "README"
+            path.write_text("plain readme\n", encoding="utf-8")
+            previous_domain = os.environ.pop("DOCBASE_DOMAIN", None)
+            previous_token = os.environ.pop("DOCBASE_TOKEN", None)
+            self.addCleanup(_restore_env_var, "DOCBASE_DOMAIN", previous_domain)
+            self.addCleanup(_restore_env_var, "DOCBASE_TOKEN", previous_token)
+
+            result = self.runner.invoke(main, ["init", str(path)])
+
+            self.assertEqual(result.exit_code, 0)
+            content = path.read_text(encoding="utf-8")
+            self.assertIn("title: README", content)
+            self.assertIn("plain readme", content)
+
+    def test_main_init_command_refuses_file_with_existing_front_matter(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = Path(tmpdir) / "already.md"
+            original = "---\ntitle: x\n---\n\nbody\n"
+            path.write_text(original, encoding="utf-8")
+            previous_domain = os.environ.pop("DOCBASE_DOMAIN", None)
+            previous_token = os.environ.pop("DOCBASE_TOKEN", None)
+            self.addCleanup(_restore_env_var, "DOCBASE_DOMAIN", previous_domain)
+            self.addCleanup(_restore_env_var, "DOCBASE_TOKEN", previous_token)
+
+            result = self.runner.invoke(main, ["init", str(path)])
+
+            self.assertEqual(result.exit_code, 1)
+            self.assertIn("Error: file already has front matter", result.output)
+            self.assertEqual(path.read_text(encoding="utf-8"), original)
+
+    def test_main_init_command_rejects_missing_file(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            missing = Path(tmpdir) / "missing.md"
+
+            result = self.runner.invoke(main, ["init", str(missing)])
+
+            self.assertNotEqual(result.exit_code, 0)
+            self.assertIn("does not exist", result.output)
+
 
 def _restore_env_var(name: str, value: str | None) -> None:
     if value is None:
