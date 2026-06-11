@@ -21,9 +21,9 @@ dogbass init <file>
 ## 動作仕様
 
 1. 引数の検証:
-   - ファイルが存在しない、あるいはディレクトリの場合は `ValidationError`
-   - ファイルがすでに YAML Front Matter ブロック (先頭が `---\n` で始まり、対応する閉じ `---` を持つ) を含む場合は `FileConflictError` で中止
-   - `path.stem` が空文字 (例: `.gitignore` 相当の隠しファイルや、ファイル名が単に `.md`) の場合は `ValidationError`
+   - ファイルが存在しない、あるいはディレクトリの場合は Click 側で `UsageError` (`click.Path(exists=True, dir_okay=False)` による)
+   - ファイルがすでに YAML Front Matter ブロックを含む場合は `FileConflictError` で中止。判定基準は `_extract_raw_front_matter_yaml` と同じ (改行を LF 正規化したうえで `---\n` で始まり、後続に閉じる `---` 行を持つ) とする。先頭が `---\n` でも閉じる `---` がなければ Front Matter とはみなさない。
+   - `path.stem` を `strip()` した結果が空文字の場合は `ValidationError` (防御的チェック。通常のファイル名では発生しない)
 2. ファイル本文を読み取る。元の改行スタイル (LF/CRLF/CR) と末尾の改行有無は保持する。
 3. タイトルは `path.stem` を使用する。前後の空白は `strip()` する。
 4. `new` コマンドと同じデフォルト値で Front Matter を構築:
@@ -89,9 +89,9 @@ def init_command(file: Path) -> None:
 
 ## エラーハンドリング
 
-- ファイル不在 / ディレクトリ → Click の `UsageError` (Click が自動)、または `ValidationError`
-- 既存 Front Matter あり → `FileConflictError`
-- stem が空 → `ValidationError`
+- ファイル不在 / ディレクトリ → Click が `UsageError` を発生 (終了コード 2)
+- 既存 Front Matter あり → `FileConflictError` (終了コード 1)
+- stem が空 → `ValidationError` (終了コード 1)
 - DocBase 接続不可 → 黙って groups ヒントだけ簡略化して続行 (`new` と同じ挙動)
 
 エラーは `app_error_handler` デコレータで `AppError` → `click.exceptions.Exit(exit_code)` に変換される。
@@ -110,10 +110,10 @@ def init_command(file: Path) -> None:
 - DocBase の環境変数が未設定の場合でも成功し、groups コメントは簡略テンプレートになる
 
 異常系:
-- 引数のファイルが存在しない → 終了コード非 0
-- 引数がディレクトリ → 終了コード非 0
-- ファイル先頭にすでに `---\n...\n---` がある → `FileConflictError` で終了コード非 0、ファイルは書き換わらない
-- stem が空 (例: `.md` のみ) → `ValidationError`
+- 引数のファイルが存在しない → Click の `UsageError` (終了コード 2)
+- 引数がディレクトリ → Click の `UsageError` (終了コード 2)
+- ファイル先頭にすでに `---\n...\n---` がある → `FileConflictError` で終了コード 1、ファイルは書き換わらない
+- 先頭が `---\n` だが閉じる `---` がない場合は Front Matter とみなさず、正常に追加できる
 
 ## 影響範囲
 
