@@ -706,6 +706,12 @@ class DogbassTests(unittest.TestCase):
         # A markdown horizontal rule mid-document is not front matter.
         self.assertFalse(_has_front_matter("# Title\n\n---\n\nbody\n"))
 
+    def test_has_front_matter_detects_block_with_body_hr(self) -> None:
+        # When the document opens with `---`, the first `---` line is the closer;
+        # an additional `---` in the body afterwards must not invalidate detection.
+        text = "---\ntitle: x\n---\n\nbody\n\n---\n"
+        self.assertTrue(_has_front_matter(text))
+
 
 def _restore_env_var(name: str, value: str | None) -> None:
     if value is None:
