@@ -12,16 +12,21 @@ from click.testing import CliRunner
 
 from dogbass.cli import (
     HOOK_MARKER,
+    existing_paths_for_id,
+    fetch_all_posts,
     install_post_commit_hook,
     main,
     new_markdown_file,
+    pull_all_filename,
+    pull_all_markdown_files,
     pull_markdown_file,
     push_markdown_file,
     render_post_commit_hook,
+    resolve_user_id,
     sync_committed_markdown_files,
 )
 from dogbass.docbase import DocBaseClient
-from dogbass.errors import DocBaseRequestError
+from dogbass.errors import DocBaseRequestError, DocBaseResponseError
 from dogbass.markdown import (
     _has_front_matter,
     create_markdown_document,
@@ -34,6 +39,8 @@ class FakeDocBaseClient(DocBaseClient):
         super().__init__(domain="example", token="secret")
         self.created_payloads: list[dict[str, object]] = []
         self.updated_payloads: list[tuple[int, dict[str, object]]] = []
+        self.list_posts_calls: list[tuple[str, int, int]] = []
+        self.posts_by_query: dict[str, list[dict[str, object]] | None] = {}
 
     def create_post(self, payload: dict[str, object]) -> dict[str, object]:
         self.created_payloads.append(payload)
@@ -61,6 +68,20 @@ class FakeDocBaseClient(DocBaseClient):
             {"id": 1, "name": "DocBase"},
             {"id": 2, "name": "engineering"},
         ]
+
+    def get_profile(self) -> dict[str, object]:
+        return {"id": 99, "name": "Fake User"}
+
+    def list_posts(
+        self, query: str, page: int = 1, per_page: int = 20
+    ) -> dict[str, object]:
+        self.list_posts_calls.append((query, page, per_page))
+        posts = self.posts_by_query.get(query, [])
+        if posts is None:
+            return {"posts": None, "meta": {}}
+        start = (page - 1) * per_page
+        end = start + per_page
+        return {"posts": posts[start:end], "meta": {}}
 
 
 class DogbassTests(unittest.TestCase):
@@ -387,6 +408,65 @@ class DogbassTests(unittest.TestCase):
         self.assertEqual(result.exit_code, 0)
         self.assertIn("1\tDocBase", result.output)
         self.assertIn("2\tengineering", result.output)
+
+    def test_main_supports_pull_all_command(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            directory = Path(tmpdir) / "export"
+
+            previous_domain = os.environ.get("DOCBASE_DOMAIN")
+            previous_token = os.environ.get("DOCBASE_TOKEN")
+            self.addCleanup(_restore_env_var, "DOCBASE_DOMAIN", previous_domain)
+            self.addCleanup(_restore_env_var, "DOCBASE_TOKEN", previous_token)
+            os.environ["DOCBASE_DOMAIN"] = "example"
+            os.environ["DOCBASE_TOKEN"] = "secret"
+
+            fake_client = FakeDocBaseClient()
+            fake_client.posts_by_query["author_id:99"] = [
+                {
+                    "id": 1,
+                    "title": "CLI Post",
+                    "body": "CLI body",
+                    "draft": False,
+                    "scope": "private",
+                    "tags": [],
+                    "groups": [],
+                }
+            ]
+            fake_client.posts_by_query["author_id:99 is:draft"] = []
+
+            with patch.object(DocBaseClient, "from_env", return_value=fake_client):
+                result = self.runner.invoke(main, ["pull-all", str(directory)])
+
+            self.assertEqual(result.exit_code, 0)
+            self.assertIn("Pulled DocBase post 1 into", result.output)
+            self.assertIn("Pulled 1 DocBase post(s) into", result.output)
+            self.assertTrue((directory / "1-cli-post.md").exists())
+
+    def test_main_supports_pull_all_user_option(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            directory = Path(tmpdir) / "export"
+
+            previous_domain = os.environ.get("DOCBASE_DOMAIN")
+            previous_token = os.environ.get("DOCBASE_TOKEN")
+            self.addCleanup(_restore_env_var, "DOCBASE_DOMAIN", previous_domain)
+            self.addCleanup(_restore_env_var, "DOCBASE_TOKEN", previous_token)
+            os.environ["DOCBASE_DOMAIN"] = "example"
+            os.environ["DOCBASE_TOKEN"] = "secret"
+
+            fake_client = FakeDocBaseClient()
+            fake_client.posts_by_query["author_id:7"] = []
+            fake_client.posts_by_query["author_id:7 is:draft"] = []
+
+            with patch.object(DocBaseClient, "from_env", return_value=fake_client):
+                result = self.runner.invoke(
+                    main, ["pull-all", "--user", "7", str(directory)]
+                )
+
+            self.assertEqual(result.exit_code, 0)
+            self.assertEqual(
+                [call[0] for call in fake_client.list_posts_calls],
+                ["author_id:7", "author_id:7 is:draft"],
+            )
 
     def test_install_post_commit_hook_writes_hook_script(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -884,6 +964,191 @@ class DogbassTests(unittest.TestCase):
 
             self.assertNotEqual(result.exit_code, 0)
             self.assertIn("does not exist", result.output)
+
+    def test_pull_all_filename_uses_slug_from_title(self) -> None:
+        self.assertEqual(
+            pull_all_filename(123, "My Post Title"), "123-my-post-title.md"
+        )
+
+    def test_pull_all_filename_falls_back_to_id_when_slug_is_empty(self) -> None:
+        self.assertEqual(pull_all_filename(7, "😀😀"), "7.md")
+
+    def test_existing_paths_for_id_matches_exact_and_prefixed_stems_only(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            directory = Path(tmpdir)
+            (directory / "1.md").write_text("a", encoding="utf-8")
+            (directory / "1-old-title.md").write_text("b", encoding="utf-8")
+            (directory / "10-other.md").write_text("c", encoding="utf-8")
+            (directory / "2-unrelated.md").write_text("d", encoding="utf-8")
+
+            matches = existing_paths_for_id(directory, 1)
+
+            self.assertEqual(
+                [path.name for path in matches], ["1-old-title.md", "1.md"]
+            )
+
+    def test_resolve_user_id_returns_given_id_without_calling_profile(self) -> None:
+        client = FakeDocBaseClient()
+
+        result = resolve_user_id(client, 55)
+
+        self.assertEqual(result, 55)
+
+    def test_resolve_user_id_falls_back_to_profile_id(self) -> None:
+        client = FakeDocBaseClient()
+
+        result = resolve_user_id(client, None)
+
+        self.assertEqual(result, 99)
+
+    def test_resolve_user_id_raises_when_profile_id_is_invalid(self) -> None:
+        class BrokenProfileClient(FakeDocBaseClient):
+            def get_profile(self) -> dict[str, object]:
+                return {"name": "No Id"}
+
+        client = BrokenProfileClient()
+
+        with self.assertRaises(DocBaseResponseError):
+            resolve_user_id(client, None)
+
+    def test_fetch_all_posts_merges_normal_and_draft_queries_deduping_by_id(
+        self,
+    ) -> None:
+        client = FakeDocBaseClient()
+        client.posts_by_query["author_id:99"] = [{"id": 1, "title": "Published"}]
+        client.posts_by_query["author_id:99 is:draft"] = [
+            {"id": 1, "title": "Published"},
+            {"id": 2, "title": "Draft Only"},
+        ]
+
+        result = fetch_all_posts(client, 99)
+
+        self.assertEqual(
+            result,
+            {1: {"id": 1, "title": "Published"}, 2: {"id": 2, "title": "Draft Only"}},
+        )
+
+    def test_fetch_all_posts_paginates_until_a_short_page(self) -> None:
+        client = FakeDocBaseClient()
+        client.posts_by_query["author_id:99"] = [
+            {"id": index, "title": f"Post {index}"} for index in range(1, 4)
+        ]
+        client.posts_by_query["author_id:99 is:draft"] = []
+
+        result = fetch_all_posts(client, 99, per_page=2)
+
+        self.assertEqual(sorted(result.keys()), [1, 2, 3])
+        self.assertEqual(
+            client.list_posts_calls,
+            [
+                ("author_id:99", 1, 2),
+                ("author_id:99", 2, 2),
+                ("author_id:99 is:draft", 1, 2),
+            ],
+        )
+
+    def test_fetch_all_posts_raises_on_invalid_posts_payload(self) -> None:
+        client = FakeDocBaseClient()
+        client.posts_by_query["author_id:99"] = None
+
+        with self.assertRaises(DocBaseResponseError):
+            fetch_all_posts(client, 99)
+
+    def test_pull_all_markdown_files_writes_posts_using_id_prefixed_filenames(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            directory = Path(tmpdir)
+            client = FakeDocBaseClient()
+            client.posts_by_query["author_id:99"] = [
+                {
+                    "id": 1,
+                    "title": "My Post",
+                    "body": "Body text",
+                    "draft": False,
+                    "scope": "private",
+                    "tags": [{"name": "docs"}],
+                    "groups": [],
+                }
+            ]
+            client.posts_by_query["author_id:99 is:draft"] = []
+
+            count = pull_all_markdown_files(directory, client, user_id=99)
+
+            self.assertEqual(count, 1)
+            written_path = directory / "1-my-post.md"
+            document = load_markdown_document(written_path)
+            self.assertEqual(document.title, "My Post")
+            self.assertEqual(document.body, "Body text")
+            self.assertEqual(document.tags, ["docs"])
+            self.assertFalse(document.draft)
+            self.assertEqual(document.document_id, 1)
+
+    def test_pull_all_markdown_files_falls_back_to_profile_id(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            directory = Path(tmpdir)
+            client = FakeDocBaseClient()
+            client.posts_by_query["author_id:99"] = []
+            client.posts_by_query["author_id:99 is:draft"] = []
+
+            count = pull_all_markdown_files(directory, client)
+
+            self.assertEqual(count, 0)
+            self.assertEqual(
+                [call[0] for call in client.list_posts_calls],
+                ["author_id:99", "author_id:99 is:draft"],
+            )
+
+    def test_pull_all_markdown_files_creates_directory_when_missing(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            directory = Path(tmpdir) / "nested" / "exports"
+            client = FakeDocBaseClient()
+            client.posts_by_query["author_id:99"] = []
+            client.posts_by_query["author_id:99 is:draft"] = []
+
+            pull_all_markdown_files(directory, client, user_id=99)
+
+            self.assertTrue(directory.is_dir())
+
+    def test_pull_all_markdown_files_renames_on_title_change_and_keeps_notice(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            directory = Path(tmpdir)
+            old_path = directory / "1-old-title.md"
+            old_path.write_text(
+                "---\n"
+                "title: Old Title\n"
+                "tags: []\n"
+                "draft: false\n"
+                "notice: false\n"
+                "id: 1\n"
+                "---\n"
+                "\n"
+                "Old body\n",
+                encoding="utf-8",
+            )
+            client = FakeDocBaseClient()
+            client.posts_by_query["author_id:99"] = [
+                {
+                    "id": 1,
+                    "title": "New Title",
+                    "body": "New body",
+                    "draft": False,
+                    "scope": "private",
+                    "tags": [],
+                    "groups": [],
+                }
+            ]
+            client.posts_by_query["author_id:99 is:draft"] = []
+
+            pull_all_markdown_files(directory, client, user_id=99)
+
+            self.assertFalse(old_path.exists())
+            new_path = directory / "1-new-title.md"
+            document = load_markdown_document(new_path)
+            self.assertEqual(document.title, "New Title")
+            self.assertEqual(document.notice, False)
 
 
 def _restore_env_var(name: str, value: str | None) -> None:

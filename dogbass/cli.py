@@ -59,6 +59,34 @@ def title_to_filename(title: str) -> Path:
     return Path(f"{slug}.md")
 
 
+def pull_all_filename(post_id: int, title: str) -> str:
+    slug = title_to_filename(title).stem
+    if not slug or slug == ".md":
+        return f"{post_id}.md"
+    return f"{post_id}-{slug}.md"
+
+
+def existing_paths_for_id(directory: Path, post_id: int) -> list[Path]:
+    exact = str(post_id)
+    prefix = f"{post_id}-"
+    matches: list[Path] = []
+    for path in sorted(directory.glob("*.md")):
+        stem = path.stem
+        if stem == exact or stem.startswith(prefix):
+            matches.append(path)
+    return matches
+
+
+def resolve_user_id(client: DocBaseClient, user_id: int | None) -> int:
+    if user_id is not None:
+        return user_id
+    profile = client.get_profile()
+    profile_id = profile.get("id")
+    if not isinstance(profile_id, int):
+        raise DocBaseResponseError("DocBase API returned an invalid profile")
+    return profile_id
+
+
 def prompt_title() -> str:
     while True:
         title = click.prompt("Title", prompt_suffix=": ").strip()
@@ -130,6 +158,72 @@ def pull_markdown_file(
     write_markdown_document(document)
     click.echo(f"Pulled DocBase post {document_id} into {markdown_path}")
     return 0
+
+
+def fetch_all_posts(
+    client: DocBaseClient, user_id: int, per_page: int = 100
+) -> dict[int, dict[str, Any]]:
+    posts_by_id: dict[int, dict[str, Any]] = {}
+    for query in (f"author_id:{user_id}", f"author_id:{user_id} is:draft"):
+        page = 1
+        while True:
+            payload = client.list_posts(query, page=page, per_page=per_page)
+            posts = payload.get("posts")
+            if not isinstance(posts, list):
+                raise DocBaseResponseError("DocBase API returned invalid posts JSON")
+            for post in posts:
+                if not isinstance(post, dict):
+                    raise DocBaseResponseError("DocBase API returned an invalid post")
+                post_id = post.get("id")
+                if not isinstance(post_id, int):
+                    raise DocBaseResponseError("DocBase API returned a post without id")
+                posts_by_id[post_id] = post
+            if len(posts) < per_page:
+                break
+            page += 1
+    return posts_by_id
+
+
+def pull_all_markdown_files(
+    directory: Path, client: DocBaseClient, user_id: int | None = None
+) -> int:
+    resolved_user_id = resolve_user_id(client, user_id)
+    directory.mkdir(parents=True, exist_ok=True)
+
+    posts_by_id = fetch_all_posts(client, resolved_user_id)
+
+    for post_id in sorted(posts_by_id):
+        post = posts_by_id[post_id]
+        title = post.get("title")
+        if not isinstance(title, str) or not title.strip():
+            raise DocBaseResponseError("DocBase API returned a post without title")
+        target_path = directory / pull_all_filename(post_id, title)
+
+        existing_paths = existing_paths_for_id(directory, post_id)
+        if target_path in existing_paths:
+            source_for_notice: Path | None = target_path
+        else:
+            source_for_notice = existing_paths[0] if existing_paths else None
+
+        notice: bool | None = None
+        if source_for_notice is not None:
+            try:
+                notice = load_markdown_document(source_for_notice).notice
+            except AppError:
+                notice = None
+
+        for existing_path in existing_paths:
+            if existing_path != target_path:
+                existing_path.unlink()
+
+        document = markdown_document_from_docbase(
+            target_path, post, post_id, notice=notice
+        )
+        write_markdown_document(document)
+        click.echo(f"Pulled DocBase post {post_id} into {target_path}")
+
+    click.echo(f"Pulled {len(posts_by_id)} DocBase post(s) into {directory}")
+    return len(posts_by_id)
 
 
 def list_groups(client: DocBaseClient) -> int:
@@ -333,6 +427,22 @@ def pull_command(markdown_file: Path, document_id: int | None) -> None:
         raise FileConflictError(f"refusing to overwrite existing file: {markdown_file}")
     client = DocBaseClient.from_env()
     pull_markdown_file(markdown_file, client, document_id=document_id)
+
+
+@main.command("pull-all")
+@click.option(
+    "--user",
+    "user_id",
+    type=int,
+    default=None,
+    help="DocBase user id to fetch posts for (defaults to the token owner).",
+)
+@click.argument("directory", type=click.Path(file_okay=False, path_type=Path))
+@app_error_handler
+def pull_all_command(directory: Path, user_id: int | None) -> None:
+    """Fetch all DocBase posts written by a user into a directory."""
+    client = DocBaseClient.from_env()
+    pull_all_markdown_files(directory, client, user_id=user_id)
 
 
 @main.command("groups")

@@ -44,6 +44,9 @@ class DocBaseClient:
     def get_post(self, post_id: int) -> dict[str, Any]:
         return self._request_object("GET", f"/teams/{self.domain}/posts/{post_id}")
 
+    def get_profile(self) -> dict[str, Any]:
+        return self._request_object("GET", f"/teams/{self.domain}/profile")
+
     def list_groups(self) -> list[dict[str, Any]]:
         payload = self._request_json("GET", f"/teams/{self.domain}/groups")
         if not isinstance(payload, list):
@@ -56,21 +59,35 @@ class DocBaseClient:
             groups.append(cast(dict[str, Any], group))
         return groups
 
+    def list_posts(
+        self, query: str, page: int = 1, per_page: int = 20
+    ) -> dict[str, Any]:
+        params = {"q": query, "page": page, "per_page": per_page}
+        return self._request_object("GET", f"/teams/{self.domain}/posts", params=params)
+
     def update_post(self, post_id: int, payload: dict[str, Any]) -> dict[str, Any]:
         return self._request_object(
             "PATCH", f"/teams/{self.domain}/posts/{post_id}", payload
         )
 
     def _request_object(
-        self, method: str, path: str, payload: dict[str, Any] | None = None
+        self,
+        method: str,
+        path: str,
+        payload: dict[str, Any] | None = None,
+        params: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
-        data = self._request_json(method, path, payload)
+        data = self._request_json(method, path, payload, params=params)
         if not isinstance(data, dict):
             raise DocBaseResponseError("DocBase API returned invalid JSON")
         return cast(dict[str, Any], data)
 
     def _request_json(
-        self, method: str, path: str, payload: dict[str, Any] | None = None
+        self,
+        method: str,
+        path: str,
+        payload: dict[str, Any] | None = None,
+        params: dict[str, Any] | None = None,
     ) -> Any:
         headers = {
             "X-DocBaseToken": self.token,
@@ -79,9 +96,13 @@ class DocBaseClient:
 
         if self.client is None:
             with httpx.Client(base_url=API_BASE_URL, timeout=30.0) as client:
-                response = client.request(method, path, headers=headers, json=payload)
+                response = client.request(
+                    method, path, headers=headers, json=payload, params=params
+                )
         else:
-            response = self.client.request(method, path, headers=headers, json=payload)
+            response = self.client.request(
+                method, path, headers=headers, json=payload, params=params
+            )
 
         try:
             response.raise_for_status()
