@@ -13,6 +13,7 @@ from click.testing import CliRunner
 from dogbass.cli import (
     HOOK_MARKER,
     existing_paths_for_id,
+    fetch_all_posts,
     install_post_commit_hook,
     main,
     new_markdown_file,
@@ -37,6 +38,8 @@ class FakeDocBaseClient(DocBaseClient):
         super().__init__(domain="example", token="secret")
         self.created_payloads: list[dict[str, object]] = []
         self.updated_payloads: list[tuple[int, dict[str, object]]] = []
+        self.list_posts_calls: list[tuple[str, int, int]] = []
+        self.posts_by_query: dict[str, list[dict[str, object]] | None] = {}
 
     def create_post(self, payload: dict[str, object]) -> dict[str, object]:
         self.created_payloads.append(payload)
@@ -67,6 +70,17 @@ class FakeDocBaseClient(DocBaseClient):
 
     def get_profile(self) -> dict[str, object]:
         return {"id": 99, "name": "Fake User"}
+
+    def list_posts(
+        self, query: str, page: int = 1, per_page: int = 20
+    ) -> dict[str, object]:
+        self.list_posts_calls.append((query, page, per_page))
+        posts = self.posts_by_query.get(query, [])
+        if posts is None:
+            return {"posts": None, "meta": {}}
+        start = (page - 1) * per_page
+        end = start + per_page
+        return {"posts": posts[start:end], "meta": {}}
 
 
 class DogbassTests(unittest.TestCase):
@@ -936,6 +950,49 @@ class DogbassTests(unittest.TestCase):
 
         with self.assertRaises(DocBaseResponseError):
             resolve_user_id(client, None)
+
+    def test_fetch_all_posts_merges_normal_and_draft_queries_deduping_by_id(
+        self,
+    ) -> None:
+        client = FakeDocBaseClient()
+        client.posts_by_query["author_id:99"] = [{"id": 1, "title": "Published"}]
+        client.posts_by_query["author_id:99 is:draft"] = [
+            {"id": 1, "title": "Published"},
+            {"id": 2, "title": "Draft Only"},
+        ]
+
+        result = fetch_all_posts(client, 99)
+
+        self.assertEqual(
+            result,
+            {1: {"id": 1, "title": "Published"}, 2: {"id": 2, "title": "Draft Only"}},
+        )
+
+    def test_fetch_all_posts_paginates_until_a_short_page(self) -> None:
+        client = FakeDocBaseClient()
+        client.posts_by_query["author_id:99"] = [
+            {"id": index, "title": f"Post {index}"} for index in range(1, 4)
+        ]
+        client.posts_by_query["author_id:99 is:draft"] = []
+
+        result = fetch_all_posts(client, 99, per_page=2)
+
+        self.assertEqual(sorted(result.keys()), [1, 2, 3])
+        self.assertEqual(
+            client.list_posts_calls,
+            [
+                ("author_id:99", 1, 2),
+                ("author_id:99", 2, 2),
+                ("author_id:99 is:draft", 1, 2),
+            ],
+        )
+
+    def test_fetch_all_posts_raises_on_invalid_posts_payload(self) -> None:
+        client = FakeDocBaseClient()
+        client.posts_by_query["author_id:99"] = None
+
+        with self.assertRaises(DocBaseResponseError):
+            fetch_all_posts(client, 99)
 
 
 def _restore_env_var(name: str, value: str | None) -> None:

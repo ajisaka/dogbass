@@ -160,6 +160,30 @@ def pull_markdown_file(
     return 0
 
 
+def fetch_all_posts(
+    client: DocBaseClient, user_id: int, per_page: int = 100
+) -> dict[int, dict[str, Any]]:
+    posts_by_id: dict[int, dict[str, Any]] = {}
+    for query in (f"author_id:{user_id}", f"author_id:{user_id} is:draft"):
+        page = 1
+        while True:
+            payload = client.list_posts(query, page=page, per_page=per_page)
+            posts = payload.get("posts")
+            if not isinstance(posts, list):
+                raise DocBaseResponseError("DocBase API returned invalid posts JSON")
+            for post in posts:
+                if not isinstance(post, dict):
+                    raise DocBaseResponseError("DocBase API returned an invalid post")
+                post_id = post.get("id")
+                if not isinstance(post_id, int):
+                    raise DocBaseResponseError("DocBase API returned a post without id")
+                posts_by_id[post_id] = post
+            if len(posts) < per_page:
+                break
+            page += 1
+    return posts_by_id
+
+
 def list_groups(client: DocBaseClient) -> int:
     groups = client.list_groups()
     for group in groups:
