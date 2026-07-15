@@ -184,6 +184,48 @@ def fetch_all_posts(
     return posts_by_id
 
 
+def pull_all_markdown_files(
+    directory: Path, client: DocBaseClient, user_id: int | None = None
+) -> int:
+    resolved_user_id = resolve_user_id(client, user_id)
+    directory.mkdir(parents=True, exist_ok=True)
+
+    posts_by_id = fetch_all_posts(client, resolved_user_id)
+
+    for post_id in sorted(posts_by_id):
+        post = posts_by_id[post_id]
+        title = post.get("title")
+        if not isinstance(title, str) or not title.strip():
+            raise DocBaseResponseError("DocBase API returned a post without title")
+        target_path = directory / pull_all_filename(post_id, title)
+
+        existing_paths = existing_paths_for_id(directory, post_id)
+        if target_path in existing_paths:
+            source_for_notice: Path | None = target_path
+        else:
+            source_for_notice = existing_paths[0] if existing_paths else None
+
+        notice: bool | None = None
+        if source_for_notice is not None:
+            try:
+                notice = load_markdown_document(source_for_notice).notice
+            except AppError:
+                notice = None
+
+        for existing_path in existing_paths:
+            if existing_path != target_path:
+                existing_path.unlink()
+
+        document = markdown_document_from_docbase(
+            target_path, post, post_id, notice=notice
+        )
+        write_markdown_document(document)
+        click.echo(f"Pulled DocBase post {post_id} into {target_path}")
+
+    click.echo(f"Pulled {len(posts_by_id)} DocBase post(s) into {directory}")
+    return len(posts_by_id)
+
+
 def list_groups(client: DocBaseClient) -> int:
     groups = client.list_groups()
     for group in groups:

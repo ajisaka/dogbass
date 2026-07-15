@@ -18,6 +18,7 @@ from dogbass.cli import (
     main,
     new_markdown_file,
     pull_all_filename,
+    pull_all_markdown_files,
     pull_markdown_file,
     push_markdown_file,
     render_post_commit_hook,
@@ -993,6 +994,102 @@ class DogbassTests(unittest.TestCase):
 
         with self.assertRaises(DocBaseResponseError):
             fetch_all_posts(client, 99)
+
+    def test_pull_all_markdown_files_writes_posts_using_id_prefixed_filenames(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            directory = Path(tmpdir)
+            client = FakeDocBaseClient()
+            client.posts_by_query["author_id:99"] = [
+                {
+                    "id": 1,
+                    "title": "My Post",
+                    "body": "Body text",
+                    "draft": False,
+                    "scope": "private",
+                    "tags": [{"name": "docs"}],
+                    "groups": [],
+                }
+            ]
+            client.posts_by_query["author_id:99 is:draft"] = []
+
+            count = pull_all_markdown_files(directory, client, user_id=99)
+
+            self.assertEqual(count, 1)
+            written_path = directory / "1-my-post.md"
+            document = load_markdown_document(written_path)
+            self.assertEqual(document.title, "My Post")
+            self.assertEqual(document.body, "Body text")
+            self.assertEqual(document.tags, ["docs"])
+            self.assertFalse(document.draft)
+            self.assertEqual(document.document_id, 1)
+
+    def test_pull_all_markdown_files_falls_back_to_profile_id(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            directory = Path(tmpdir)
+            client = FakeDocBaseClient()
+            client.posts_by_query["author_id:99"] = []
+            client.posts_by_query["author_id:99 is:draft"] = []
+
+            count = pull_all_markdown_files(directory, client)
+
+            self.assertEqual(count, 0)
+            self.assertEqual(
+                [call[0] for call in client.list_posts_calls],
+                ["author_id:99", "author_id:99 is:draft"],
+            )
+
+    def test_pull_all_markdown_files_creates_directory_when_missing(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            directory = Path(tmpdir) / "nested" / "exports"
+            client = FakeDocBaseClient()
+            client.posts_by_query["author_id:99"] = []
+            client.posts_by_query["author_id:99 is:draft"] = []
+
+            pull_all_markdown_files(directory, client, user_id=99)
+
+            self.assertTrue(directory.is_dir())
+
+    def test_pull_all_markdown_files_renames_on_title_change_and_keeps_notice(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            directory = Path(tmpdir)
+            old_path = directory / "1-old-title.md"
+            old_path.write_text(
+                "---\n"
+                "title: Old Title\n"
+                "tags: []\n"
+                "draft: false\n"
+                "notice: false\n"
+                "id: 1\n"
+                "---\n"
+                "\n"
+                "Old body\n",
+                encoding="utf-8",
+            )
+            client = FakeDocBaseClient()
+            client.posts_by_query["author_id:99"] = [
+                {
+                    "id": 1,
+                    "title": "New Title",
+                    "body": "New body",
+                    "draft": False,
+                    "scope": "private",
+                    "tags": [],
+                    "groups": [],
+                }
+            ]
+            client.posts_by_query["author_id:99 is:draft"] = []
+
+            pull_all_markdown_files(directory, client, user_id=99)
+
+            self.assertFalse(old_path.exists())
+            new_path = directory / "1-new-title.md"
+            document = load_markdown_document(new_path)
+            self.assertEqual(document.title, "New Title")
+            self.assertEqual(document.notice, False)
 
 
 def _restore_env_var(name: str, value: str | None) -> None:
