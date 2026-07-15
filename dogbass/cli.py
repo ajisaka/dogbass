@@ -59,6 +59,34 @@ def title_to_filename(title: str) -> Path:
     return Path(f"{slug}.md")
 
 
+def pull_all_filename(post_id: int, title: str) -> str:
+    slug = title_to_filename(title).stem
+    if not slug or slug == ".md":
+        return f"{post_id}.md"
+    return f"{post_id}-{slug}.md"
+
+
+def existing_paths_for_id(directory: Path, post_id: int) -> list[Path]:
+    exact = str(post_id)
+    prefix = f"{post_id}-"
+    matches: list[Path] = []
+    for path in sorted(directory.glob("*.md")):
+        stem = path.stem
+        if stem == exact or stem.startswith(prefix):
+            matches.append(path)
+    return matches
+
+
+def resolve_user_id(client: DocBaseClient, user_id: int | None) -> int:
+    if user_id is not None:
+        return user_id
+    profile = client.get_profile()
+    profile_id = profile.get("id")
+    if not isinstance(profile_id, int):
+        raise DocBaseResponseError("DocBase API returned an invalid profile")
+    return profile_id
+
+
 def prompt_title() -> str:
     while True:
         title = click.prompt("Title", prompt_suffix=": ").strip()

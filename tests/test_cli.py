@@ -12,16 +12,19 @@ from click.testing import CliRunner
 
 from dogbass.cli import (
     HOOK_MARKER,
+    existing_paths_for_id,
     install_post_commit_hook,
     main,
     new_markdown_file,
+    pull_all_filename,
     pull_markdown_file,
     push_markdown_file,
     render_post_commit_hook,
+    resolve_user_id,
     sync_committed_markdown_files,
 )
 from dogbass.docbase import DocBaseClient
-from dogbass.errors import DocBaseRequestError
+from dogbass.errors import DocBaseRequestError, DocBaseResponseError
 from dogbass.markdown import (
     _has_front_matter,
     create_markdown_document,
@@ -61,6 +64,9 @@ class FakeDocBaseClient(DocBaseClient):
             {"id": 1, "name": "DocBase"},
             {"id": 2, "name": "engineering"},
         ]
+
+    def get_profile(self) -> dict[str, object]:
+        return {"id": 99, "name": "Fake User"}
 
 
 class DogbassTests(unittest.TestCase):
@@ -884,6 +890,52 @@ class DogbassTests(unittest.TestCase):
 
             self.assertNotEqual(result.exit_code, 0)
             self.assertIn("does not exist", result.output)
+
+    def test_pull_all_filename_uses_slug_from_title(self) -> None:
+        self.assertEqual(
+            pull_all_filename(123, "My Post Title"), "123-my-post-title.md"
+        )
+
+    def test_pull_all_filename_falls_back_to_id_when_slug_is_empty(self) -> None:
+        self.assertEqual(pull_all_filename(7, "😀😀"), "7.md")
+
+    def test_existing_paths_for_id_matches_exact_and_prefixed_stems_only(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            directory = Path(tmpdir)
+            (directory / "1.md").write_text("a", encoding="utf-8")
+            (directory / "1-old-title.md").write_text("b", encoding="utf-8")
+            (directory / "10-other.md").write_text("c", encoding="utf-8")
+            (directory / "2-unrelated.md").write_text("d", encoding="utf-8")
+
+            matches = existing_paths_for_id(directory, 1)
+
+            self.assertEqual(
+                [path.name for path in matches], ["1-old-title.md", "1.md"]
+            )
+
+    def test_resolve_user_id_returns_given_id_without_calling_profile(self) -> None:
+        client = FakeDocBaseClient()
+
+        result = resolve_user_id(client, 55)
+
+        self.assertEqual(result, 55)
+
+    def test_resolve_user_id_falls_back_to_profile_id(self) -> None:
+        client = FakeDocBaseClient()
+
+        result = resolve_user_id(client, None)
+
+        self.assertEqual(result, 99)
+
+    def test_resolve_user_id_raises_when_profile_id_is_invalid(self) -> None:
+        class BrokenProfileClient(FakeDocBaseClient):
+            def get_profile(self) -> dict[str, object]:
+                return {"name": "No Id"}
+
+        client = BrokenProfileClient()
+
+        with self.assertRaises(DocBaseResponseError):
+            resolve_user_id(client, None)
 
 
 def _restore_env_var(name: str, value: str | None) -> None:
