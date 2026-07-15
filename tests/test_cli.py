@@ -409,6 +409,65 @@ class DogbassTests(unittest.TestCase):
         self.assertIn("1\tDocBase", result.output)
         self.assertIn("2\tengineering", result.output)
 
+    def test_main_supports_pull_all_command(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            directory = Path(tmpdir) / "export"
+
+            previous_domain = os.environ.get("DOCBASE_DOMAIN")
+            previous_token = os.environ.get("DOCBASE_TOKEN")
+            self.addCleanup(_restore_env_var, "DOCBASE_DOMAIN", previous_domain)
+            self.addCleanup(_restore_env_var, "DOCBASE_TOKEN", previous_token)
+            os.environ["DOCBASE_DOMAIN"] = "example"
+            os.environ["DOCBASE_TOKEN"] = "secret"
+
+            fake_client = FakeDocBaseClient()
+            fake_client.posts_by_query["author_id:99"] = [
+                {
+                    "id": 1,
+                    "title": "CLI Post",
+                    "body": "CLI body",
+                    "draft": False,
+                    "scope": "private",
+                    "tags": [],
+                    "groups": [],
+                }
+            ]
+            fake_client.posts_by_query["author_id:99 is:draft"] = []
+
+            with patch.object(DocBaseClient, "from_env", return_value=fake_client):
+                result = self.runner.invoke(main, ["pull-all", str(directory)])
+
+            self.assertEqual(result.exit_code, 0)
+            self.assertIn("Pulled DocBase post 1 into", result.output)
+            self.assertIn("Pulled 1 DocBase post(s) into", result.output)
+            self.assertTrue((directory / "1-cli-post.md").exists())
+
+    def test_main_supports_pull_all_user_option(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            directory = Path(tmpdir) / "export"
+
+            previous_domain = os.environ.get("DOCBASE_DOMAIN")
+            previous_token = os.environ.get("DOCBASE_TOKEN")
+            self.addCleanup(_restore_env_var, "DOCBASE_DOMAIN", previous_domain)
+            self.addCleanup(_restore_env_var, "DOCBASE_TOKEN", previous_token)
+            os.environ["DOCBASE_DOMAIN"] = "example"
+            os.environ["DOCBASE_TOKEN"] = "secret"
+
+            fake_client = FakeDocBaseClient()
+            fake_client.posts_by_query["author_id:7"] = []
+            fake_client.posts_by_query["author_id:7 is:draft"] = []
+
+            with patch.object(DocBaseClient, "from_env", return_value=fake_client):
+                result = self.runner.invoke(
+                    main, ["pull-all", "--user", "7", str(directory)]
+                )
+
+            self.assertEqual(result.exit_code, 0)
+            self.assertEqual(
+                [call[0] for call in fake_client.list_posts_calls],
+                ["author_id:7", "author_id:7 is:draft"],
+            )
+
     def test_install_post_commit_hook_writes_hook_script(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             repo_root = Path(tmpdir)

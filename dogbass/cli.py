@@ -429,6 +429,22 @@ def pull_command(markdown_file: Path, document_id: int | None) -> None:
     pull_markdown_file(markdown_file, client, document_id=document_id)
 
 
+@main.command("pull-all")
+@click.option(
+    "--user",
+    "user_id",
+    type=int,
+    default=None,
+    help="DocBase user id to fetch posts for (defaults to the token owner).",
+)
+@click.argument("directory", type=click.Path(file_okay=False, path_type=Path))
+@app_error_handler
+def pull_all_command(directory: Path, user_id: int | None) -> None:
+    """Fetch all DocBase posts written by a user into a directory."""
+    client = DocBaseClient.from_env()
+    pull_all_markdown_files(directory, client, user_id=user_id)
+
+
 @main.command("groups")
 @app_error_handler
 def groups_command() -> None:
