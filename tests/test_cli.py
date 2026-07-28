@@ -4,7 +4,7 @@ import io
 import os
 import tempfile
 import unittest
-from contextlib import redirect_stdout
+from contextlib import redirect_stderr, redirect_stdout
 from pathlib import Path
 from unittest.mock import patch
 
@@ -112,16 +112,19 @@ class DogbassTests(unittest.TestCase):
     def test_new_markdown_file_prompts_until_non_empty_title(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             path = Path(tmpdir) / "prompted.md"
-            output = io.StringIO()
+            stdout = io.StringIO()
+            stderr = io.StringIO()
 
             with (
-                patch("dogbass.cli.click.prompt", side_effect=["", "Prompted Title"]),
-                redirect_stdout(output),
+                patch("builtins.input", side_effect=["", "Prompted Title"]),
+                redirect_stdout(stdout),
+                redirect_stderr(stderr),
             ):
                 exit_code = new_markdown_file(path)
 
             self.assertEqual(exit_code, 0)
-            self.assertIn("Title must not be empty.", output.getvalue())
+            self.assertNotIn("Title must not be empty.", stdout.getvalue())
+            self.assertIn("Title must not be empty.", stderr.getvalue())
             document = load_markdown_document(path)
             self.assertEqual(document.title, "Prompted Title")
             self.assertTrue(document.draft)
@@ -159,6 +162,17 @@ class DogbassTests(unittest.TestCase):
             "# groups:\n#   - 1  # DocBase\n#   - 2  # engineering", result.output
         )
         self.assertNotIn("Created Markdown file", result.output)
+
+    def test_main_new_command_keeps_prompt_text_out_of_stdout(self) -> None:
+        fake_client = FakeDocBaseClient()
+
+        with patch("dogbass.cli.DocBaseClient.from_env", return_value=fake_client):
+            result = self.runner.invoke(main, ["new"], input="Stdout Title\n")
+
+        self.assertEqual(result.exit_code, 0)
+        self.assertTrue(result.stdout.startswith("---\n"))
+        self.assertIn("title: Stdout Title", result.stdout)
+        self.assertIn("Title:", result.stderr)
 
     def test_main_new_command_includes_group_comments_when_credentials_present(
         self,

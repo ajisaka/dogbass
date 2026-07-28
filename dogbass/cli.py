@@ -88,11 +88,20 @@ def resolve_user_id(client: DocBaseClient, user_id: int | None) -> int:
 
 
 def prompt_title() -> str:
+    # click.prompt() always writes the final character of the prompt text to
+    # real stdout via the builtin input(), even with err=True (a documented
+    # readline-backspace workaround). That stray character would corrupt
+    # `dogbass new`'s stdout template output when redirected, so the prompt
+    # is written to stderr by hand and input() is called with no prompt text.
     while True:
-        title = click.prompt("Title", prompt_suffix=": ").strip()
+        click.echo("Title: ", nl=False, err=True)
+        try:
+            title = input().strip()
+        except (KeyboardInterrupt, EOFError) as exc:
+            raise click.exceptions.Abort() from exc
         if title:
             return title
-        click.echo("Title must not be empty.")
+        click.echo("Title must not be empty.", err=True)
 
 
 def new_markdown_file(
